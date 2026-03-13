@@ -1,0 +1,16 @@
+requests
+python-dotenv
+rasterio
+matplotlib
+numpy
+torch
+torchvision
+Pillow
+tqdm
+pystac-client
+planetary-computer
+pyproj
+rioxarray
+xarray
+xarray-spatial
+datashader
