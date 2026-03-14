@@ -1,4 +1,4 @@
-from typing import List
+from typing import Iterable, List
 import pystac
 import pystac_client
 import planetary_computer
@@ -31,7 +31,7 @@ class Copernicus:
 
         items = self.search()
         data = self.merge(items)
-        divided_data = self.divide(data)
+        divided_data = list(self.divide(data))
         self.write(divided_data, output_path)
 
     def search(self, collection_id: str = "cop-dem-glo-30") -> List[pystac.Item]:
@@ -55,20 +55,24 @@ class Copernicus:
 
         return merged.squeeze().drop_vars("band")
 
-    def divide(self, data: xr.DataArray) -> List[xr.DataArray]:
+    def divide(self, data: xr.DataArray) -> Iterable[xr.DataArray]:
         full_height, full_width = data.shape
 
-        data_list = []
         for h in range(0, full_height, self.target_resolution[0]):
             for w in range(0, full_width, self.target_resolution[1]):
-                data_list.append(data[h:h + self.target_resolution[0],
-                                          w:w + self.target_resolution[1]])
-        return data_list
+                yield data.isel(
+                    y=slice(h, h + self.target_resolution[0]),
+                    x=slice(w, w + self.target_resolution[1]),
+                )
 
     def write(self, data: List[xr.DataArray], output_path: Path):
         for chunk in tqdm(data, desc="Writing chunks"):
             lon_min, lat_min, _, _ = chunk.rio.bounds()
             out_file = output_path / f"copernicus_{lon_min:.5f}_{lat_min:.5f}.tif"
+            
+            if out_file.exists():
+                continue
+
             chunk.rio.to_raster(out_file)
 
 def main():
