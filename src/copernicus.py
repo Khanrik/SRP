@@ -15,10 +15,12 @@ class Copernicus:
     LON_MAX = 9.999583333333334
     LAT_MAX = 57.0
 
-    def __init__(self, target_resolution: tuple[int, int], catalog: pystac_client.Client | None = None):
+    def __init__(self, 
+                 target_resolution: tuple[int, int], 
+                 catalog: pystac_client.Client | None = None):
         """
         Args:
-            target_resolution: (height, width) of the output data.
+            target_resolution: (height, width) of the chunks when dividing the data.
             catalog: Client connection to STAC API
         """
         self.catalog = catalog or pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
@@ -48,21 +50,25 @@ class Copernicus:
 
         for item in items:
             signed = sign(item.assets["data"])
-            da = rioxarray.open_rasterio(signed.href)
-            rasters.append(da)
+            with rioxarray.open_rasterio(signed.href) as data:
+                rasters.append(data.squeeze().drop_vars("band").load())
             
         merged = xr.combine_by_coords(rasters)
 
-        return merged.squeeze().drop_vars("band")
+        return merged
 
     def divide(self, data: xr.DataArray) -> Iterable[xr.DataArray]:
         full_height, full_width = data.shape
+        chunk_height, chunk_width = self.target_resolution
 
-        for h in range(0, full_height, self.target_resolution[0]):
-            for w in range(0, full_width, self.target_resolution[1]):
+        for h in range(0, full_height, chunk_height):
+            for w in range(0, full_width, chunk_width):
+                # reassigning h and w if the chunk would go out of bounds, to not get chunks with dimensions smaller than (chunk_height, chunk_width))
+                h = min(h, full_height - chunk_height)
+                w = min(w, full_width - chunk_width)
                 yield data.isel(
-                    y=slice(h, h + self.target_resolution[0]),
-                    x=slice(w, w + self.target_resolution[1]),
+                    y=slice(h, h + chunk_height),
+                    x=slice(w, w + chunk_width),
                 )
 
     def write(self, data: List[xr.DataArray], output_path: Path):
