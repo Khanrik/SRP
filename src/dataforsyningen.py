@@ -11,20 +11,14 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 class Dataforsyningen:
-    # predetermined bounding box for the area of interest
-    LON_MIN = 9.0
-    LAT_MIN = 55.000277777777775
-    LON_MAX = 9.999583333333334
-    LAT_MAX = 57.0
-
     URL = "https://api.dataforsyningen.dk/dhm_wcs_DAF"
 
-    def __init__(self, target_resolution: tuple[int, int]):
+    def __init__(self, target_resolution: int):
         """
         Args:
-            target_resolution: (height, width) of the output data.
+            target_resolution: The desired resolution of the DEM data in meters per pixel.
         """
-        self.target_resolution = target_resolution
+        self.meters_per_pixel = target_resolution
         self.session = requests.Session()
         retry = Retry(
             total=5,
@@ -72,6 +66,10 @@ class Dataforsyningen:
 
         x_min, y_min = self.transformer.transform(lon_min, lat_min)
         x_max, y_max = self.transformer.transform(lon_max, lat_max)
+        
+        target_height = int((y_max - y_min) / self.meters_per_pixel)
+        target_width = int((x_max - x_min) / self.meters_per_pixel)
+        # print(f"Shape ({target_height}, {target_width}) at ({lon_min:.5f}, {lat_min:.5f}) for bbox ({x_min:.2f}, {y_min:.2f}, {x_max:.2f}, {y_max:.2f})")
 
         params = {
             "service": "WCS",
@@ -80,8 +78,8 @@ class Dataforsyningen:
             "coverage": "dhm_terraen",
             "crs": "EPSG:25832",
             "bbox": f"{x_min},{y_min},{x_max},{y_max}",
-            "height": f"{self.target_resolution[0]}",
-            "width": f"{self.target_resolution[1]}",
+            "height": f"{target_height}",
+            "width": f"{target_width}",
             "format": "GTiff",
             "token": os.getenv("DATATOKEN")
         }
@@ -90,8 +88,8 @@ class Dataforsyningen:
 def main():
     current_dir = Path(__file__).parent
     output_path = current_dir.parent / "data" / "dataforsyningen"
-    resolution = (512*3, 512*3)
-    dataforsyningen = Dataforsyningen(target_resolution=resolution)
+    dem_resolution = 10
+    dataforsyningen = Dataforsyningen(target_resolution=dem_resolution)
     try:
         dataforsyningen.get_data(output_path)
     finally:
