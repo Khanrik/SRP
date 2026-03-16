@@ -75,7 +75,7 @@ class Dataforsyningen:
             "service": "WCS",
             "version": "1.0.0",
             "request": "GetCoverage",
-            "coverage": "dhm_terraen",
+            "coverage": "dhm_overflade",
             "crs": "EPSG:25832",
             "bbox": f"{x_min},{y_min},{x_max},{y_max}",
             "height": f"{target_height}",
