@@ -1,5 +1,4 @@
 from typing import Iterable
-from pyproj import Transformer
 import rioxarray
 import xarray as xr
 from pathlib import Path
@@ -9,6 +8,7 @@ from dotenv import load_dotenv
 import os
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import numpy as np
 
 class Dataforsyningen:
     URL = "https://api.dataforsyningen.dk/dhm_wcs_DAF"
@@ -31,7 +31,6 @@ class Dataforsyningen:
         adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
-        self.transformer = Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
         load_dotenv()
 
     def get_data(self, output_path: str | Path):
@@ -40,8 +39,8 @@ class Dataforsyningen:
 
         divided_data = list(self.read_copernicus(output_path.parent / "copernicus"))
         for data in tqdm(divided_data, desc="Downloading dataforsyningen tiles"):
-            lon_min, lat_min, _, _ = data.rio.bounds()
-            out_file = output_path / f"dataforsyningen_{lon_min:.5f}_{lat_min:.5f}_degree.tif"
+            x_min, y_min, _, _ = data.rio.bounds()
+            out_file = output_path / f"dataforsyningen_{x_min:.2f}_{y_min:.2f}_meter.tif"
 
             if out_file.exists():
                 continue
@@ -57,19 +56,15 @@ class Dataforsyningen:
         self.session.close()
 
     def read_copernicus(self, file_path: str | Path) -> Iterable[xr.DataArray]:
-        for file in Path(file_path).glob("*_degree.tif"):
+        for file in Path(file_path).glob("*_meter.tif"):
             with rioxarray.open_rasterio(file) as data:
                 yield data.squeeze().drop_vars("band").load()
     
     def get_params(self, data: xr.DataArray) -> dict:
-        lon_min, lat_min, lon_max, lat_max = data.rio.bounds()
-
-        x_min, y_min = self.transformer.transform(lon_min, lat_min)
-        x_max, y_max = self.transformer.transform(lon_max, lat_max)
+        x_min, y_min, x_max, y_max = data.rio.bounds()
         
-        target_height = int((y_max - y_min) / self.meters_per_pixel)
-        target_width = int((x_max - x_min) / self.meters_per_pixel)
-        # print(f"Shape ({target_height}, {target_width}) at ({lon_min:.5f}, {lat_min:.5f}) for bbox ({x_min:.2f}, {y_min:.2f}, {x_max:.2f}, {y_max:.2f})")
+        upscale_factor = int(data.rio.resolution()[0]) // self.meters_per_pixel
+        target_height, target_width = np.array(data.shape) * upscale_factor
 
         params = {
             "service": "WCS",
