@@ -7,22 +7,20 @@ import xarray as xr
 from planetary_computer import sign
 from pathlib import Path
 from tqdm import tqdm
+from helpers import BoundingBoxDegree
 
 class Copernicus:
-    # predetermined bounding box for the area of interest
-    LON_MIN = 9.0
-    LAT_MIN = 55.000277777777775
-    LON_MAX = 9.999583333333334
-    LAT_MAX = 57.0
-
-    def __init__(self, 
+    def __init__(self,
+                 aoi: BoundingBoxDegree,
                  target_resolution: tuple[int, int], 
                  catalog: pystac_client.Client | None = None):
         """
         Args:
+            aoi: Area of interest defined by bounding box (lon_min, lat_min, lon_max, lat_max).
             target_resolution: (height, width) of the chunks when dividing the data.
             catalog: Client connection to STAC API
         """
+        self.aoi = aoi
         self.catalog = catalog or pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
                                                             modifier=planetary_computer.sign_inplace)
         self.target_resolution = target_resolution
@@ -39,7 +37,7 @@ class Copernicus:
     def search(self, collection_id: str = "cop-dem-glo-30") -> List[pystac.Item]:
         search = self.catalog.search(
             collections=[collection_id],
-            bbox=[self.LON_MIN, self.LAT_MIN, self.LON_MAX, self.LAT_MAX],
+            bbox=[self.aoi.lon_min, self.aoi.lat_min, self.aoi.lon_max, self.aoi.lat_max],
             query={"gsd": {"eq": 30}}
         )
         items = list(search.items())
@@ -82,11 +80,17 @@ class Copernicus:
             chunk.rio.to_raster(out_file)
 
 def main():
+    print("Downloading and processing Copernicus DEM data...")
+    
+    midtjylland = BoundingBoxDegree(lon_min=9.0, lat_min=55.000277777777775, lon_max=9.999583333333334, lat_max=57.0)
+    resolution = (512, 512)
+    copernicus = Copernicus(aoi=midtjylland, target_resolution=resolution)
+    
     current_dir = Path(__file__).parent
     output_path = current_dir.parent / "data" / "copernicus"
-    resolution = (512, 512)
-    copernicus = Copernicus(target_resolution=resolution)
     copernicus.get_data(output_path)
+
+    print("Done.")
 
 if __name__ == "__main__":
     main()

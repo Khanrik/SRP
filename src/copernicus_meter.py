@@ -8,26 +8,27 @@ from planetary_computer import sign
 from pathlib import Path
 from tqdm import tqdm
 import numpy as np
+from helpers import BoundingBoxDegree, BoundingBoxMeter
+from pyproj import Transformer
 
 class Copernicus:
-    DATAFORSYNINGEN_LIMITS = (441000, 6049000, 894000, 6403000)
+    # bounding box limits for dataforsyningen in EPSG:25832
+    LIMITS = BoundingBoxMeter(x_min=441000, y_min=6049000, x_max=894000, y_max=6403000)
+    COP_CHUNK_SIZE_DEG = (1, 1) # how many degrees each edge of a copernicus chunk is in (lon, lat) - used to pad extra data
 
-    # predetermined bounding box for the area of interest
-    LON_MIN = 9.0
-    LAT_MIN = 55.000277777777775
-    LON_MAX = 9.999583333333334
-    LAT_MAX = 57.0
-
-    def __init__(self, 
+    def __init__(self,
+                 aoi: BoundingBoxDegree,
                  target_resolution: tuple[int, int], 
                  target_crs: str = "EPSG:25832",
                  catalog: pystac_client.Client | None = None):
         """
         Args:
+            aoi: Area of interest defined by bounding box (lon_min, lat_min, lon_max, lat_max).
             target_resolution: (height, width) of the chunks when dividing the data.
             target_crs: CRS to reproject DEM data to before chunking.
             catalog: Client connection to STAC API
         """
+        self.aoi = aoi
         self.catalog = catalog or pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
                                                             modifier=planetary_computer.sign_inplace)
         self.target_resolution = target_resolution
@@ -38,8 +39,12 @@ class Copernicus:
         output_path.mkdir(parents=True, exist_ok=True)
 
         items = self.search()
+        print(f"Found {len(items)} items. Merging and reprojecting data...")
         data = self.merge(items)
+        print("Data merged. Shape of merged data:", data.shape)
         data_reprojected = self.reproject(data)
+        print("Data reprojected. Shape of reprojected data:", data_reprojected.shape)
+        print("Dividing into chunks...")
         divided_data = list(self.divide(data_reprojected))
         self.write(divided_data, output_path)
 
@@ -49,7 +54,10 @@ class Copernicus:
     def search(self, collection_id: str = "cop-dem-glo-30") -> List[pystac.Item]:
         search = self.catalog.search(
             collections=[collection_id],
-            bbox=[self.LON_MIN, self.LAT_MIN, self.LON_MAX, self.LAT_MAX],
+            bbox=[self.aoi.lon_min - self.COP_CHUNK_SIZE_DEG[0], 
+                  self.aoi.lat_min - self.COP_CHUNK_SIZE_DEG[1], 
+                  self.aoi.lon_max + self.COP_CHUNK_SIZE_DEG[0], 
+                  self.aoi.lat_max + self.COP_CHUNK_SIZE_DEG[1]],
             query={"gsd": {"eq": 30}}
         )
         items = list(search.items())
@@ -68,17 +76,20 @@ class Copernicus:
         return merged
     
     def reproject(self, data: xr.DataArray) -> xr.DataArray:
-        reprojected_raw = data.rio.reproject(self.target_crs)
-
         # bound til dataforsyningen limits
-        xmin, ymin, xmax, ymax = self.DATAFORSYNINGEN_LIMITS
-        resolution = tuple(map(abs, reprojected_raw.rio.resolution()))
-        
-        # meter difference from center to pixel corner
-        hx, hy = np.array(resolution) / 2
-        x_keep = (reprojected_raw.x - hx >= xmin) & (reprojected_raw.x + hx <= xmax)
-        y_keep = (reprojected_raw.y - hy >= ymin) & (reprojected_raw.y + hy <= ymax)
+        transformer = Transformer.from_crs("EPSG:4326", self.target_crs, always_xy=True).transform
+        aoi_meter = BoundingBoxMeter(*transformer(self.aoi.lon_min, self.aoi.lat_min), *transformer(self.aoi.lon_max, self.aoi.lat_max))
+        x_min = max(self.LIMITS.x_min, aoi_meter.x_min)
+        y_min = max(self.LIMITS.y_min, aoi_meter.y_min)
+        x_max = min(self.LIMITS.x_max, aoi_meter.x_max)
+        y_max = min(self.LIMITS.y_max, aoi_meter.y_max)
 
+        # meter difference from center to pixel corner
+        reprojected_raw = data.rio.reproject(self.target_crs)
+        resolution = tuple(map(abs, reprojected_raw.rio.resolution()))
+        hx, hy = np.array(resolution) / 2
+        x_keep = (reprojected_raw.x - hx >= x_min) & (reprojected_raw.x + hx <= x_max)
+        y_keep = (reprojected_raw.y - hy >= y_min) & (reprojected_raw.y + hy <= y_max)
         reprojected = reprojected_raw.isel(x=x_keep, y=y_keep)
         
         return reprojected
@@ -118,11 +129,15 @@ class Copernicus:
 
 def main():
     print("Downloading and processing Copernicus DEM data...")
+    
+    midtjylland = BoundingBoxDegree(lon_min=9.0, lat_min=55.000277777777775, lon_max=9.999583333333334, lat_max=57.0)
+    resolution = (512, 512)
+    copernicus = Copernicus(aoi=midtjylland, target_resolution=resolution)
+    
     current_dir = Path(__file__).parent
     output_path = current_dir.parent / "data" / "copernicus"
-    resolution = (512, 512)
-    copernicus = Copernicus(target_resolution=resolution)
     copernicus.get_data(output_path)
+
     print("Done.")
 
 if __name__ == "__main__":
