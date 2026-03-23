@@ -5,83 +5,88 @@ import requests
 from dotenv import load_dotenv
 import os
 import numpy as np
-from helpers import DataDivision, make_folders, divide, write
+from helpers import make_folders
+from tqdm import tqdm
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 class Dataforsyningen:
     URL = "https://api.dataforsyningen.dk/dhm_wcs_DAF"
 
-    def __init__(self, 
-                 target_resolution: int,
-                 data_division: DataDivision = DataDivision(train=0.8, val=0.1, test=0.1)):
+    def __init__(self, target_resolution: int):
         """
         Args:
             target_resolution: The desired resolution of the DEM data in meters per pixel.
             data_division: Proportions for dividing the data into train, validation, and test sets.
         """
         self.meters_per_pixel = target_resolution
-        self.data_division = data_division
+        self.data_division_dict = {}
         self.upscale_factor = None
         load_dotenv()
+
+        self.session = requests.Session()
+        retry = Retry(
+            total=3,
+            read=3,
+            connect=3,
+            backoff_factor=0.3,
+            status_forcelist=[104, 500, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
 
     def get_data(self, output_path: str | Path):
         output_path = Path(output_path)
         make_folders(output_path, "HR")
 
-        cop_merged, cop_chunk_shape = self.read_copernicus(output_path)
-        dataforsyningen_merged = self.get_dataforsyningen(cop_merged, output_path, "dataforsyningen_meter_merged.tif")
-        target_chunk_shape = np.array(cop_chunk_shape) * (round(dataforsyningen_merged.rio.resolution()[0]) // self.meters_per_pixel)
-        divided_data = divide(dataforsyningen_merged, target_chunk_shape)
-        write(data=divided_data, 
-              output_path=output_path, 
-              resolution="HR", 
-              dataset="dataforsyningen", 
-              unit="meter", 
-              data_division=self.data_division)
-        
+        cop_chunks = self.read_copernicus(output_path)
+        self.get_dataforsyningen(cop_chunks, output_path)
 
     def read_copernicus(self, file_path: str | Path) -> tuple[xr.DataArray, tuple[int, int]]:
-        with rioxarray.open_rasterio(file_path / "copernicus_meter_merged.tif") as raw_data:
-            merged_data = raw_data.squeeze().drop_vars("band").load()
+        chunks = []
+        
+        for division in ["train", "val", "test"]:
+            for f in list(Path(file_path / division / "LR").glob("copernicus_*_meter.tif")):
+                with rioxarray.open_rasterio(f) as raw_data:
+                    data = raw_data.squeeze().drop_vars("band").load()
+                    self.data_division_dict[id(data)] = division
+                    chunks.append(data)
 
-        cop_files = Path(file_path / "train" / "LR").glob("copernicus_*_meter.tif")
-        with rioxarray.open_rasterio(next(cop_files)) as raw_data:
-            data = raw_data.squeeze().drop_vars("band").load()
-            chunk_shape = data.shape
+        self.upscale_factor = round(chunks[0].rio.resolution()[0]) // self.meters_per_pixel
 
-        return merged_data, chunk_shape
+        return chunks
 
 
-    def get_dataforsyningen(self, lr_data: xr.DataArray, output_path: Path, filename: str) -> xr.DataArray:
-        out_file = output_path / filename
+    def get_dataforsyningen(self, lr_data: xr.DataArray, output_path: Path):
+        datatoken = os.getenv("DATATOKEN")
 
-        if not out_file.exists():
-            self.upscale_factor = round(lr_data.rio.resolution()[0]) // self.meters_per_pixel
-            target_height, target_width = np.array(lr_data.shape) * self.upscale_factor
+        for data in tqdm(lr_data, desc="Fetching Dataforsyningen Data"):
+            x_min, y_min, x_max, y_max = data.rio.bounds()
+            out_file = output_path / self.data_division_dict[id(data)] / "HR" / f"dataforsyningen_{x_min:.0f}_{y_min:.0f}.tif"
 
+            if out_file.exists():
+                continue
+            
+            target_height, target_width = np.array(data.shape) * self.upscale_factor
             params = {
                 "service": "WCS",
                 "version": "1.0.0",
                 "request": "GetCoverage",
                 "coverage": "dhm_overflade",
                 "crs": "EPSG:25832",
-                "bbox": str.join(",", map(str, lr_data.rio.bounds())),
+                "bbox": f"{x_min},{y_min},{x_max},{y_max}",
                 "height": f"{target_height}",
                 "width": f"{target_width}",
                 "format": "GTiff",
-                "token": os.getenv("DATATOKEN")
+                "token": datatoken
             }
 
-            response = requests.get(self.URL, params=params, timeout=60)
+            response = self.session.get(self.URL, params=params, timeout=60)
             response.raise_for_status()
 
             with open(str(out_file), "wb") as f:
                 f.write(response.content)
-        
-        with rioxarray.open_rasterio(out_file) as data:
-            data = data.squeeze().drop_vars("band").load()
-
-        return data
-    
 
 def main():
     current_dir = Path(__file__).parent

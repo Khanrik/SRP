@@ -7,8 +7,10 @@ import xarray as xr
 from planetary_computer import sign
 from pathlib import Path
 import numpy as np
-from helpers import BoundingBoxDegree, BoundingBoxMeter, DataDivision, make_folders, divide, write
+from helpers import BoundingBoxDegree, BoundingBoxMeter, DataDivision, make_folders
 from pyproj import Transformer
+from tqdm import tqdm
+
 
 class Copernicus:
     # bounding box limits for dataforsyningen in EPSG:25832
@@ -44,13 +46,8 @@ class Copernicus:
         items = self.search()
         data = self.merge(items)
         data_reprojected = self.reproject(data)
-        divided_data = divide(data_reprojected, self.target_resolution)
-        write(data=divided_data, 
-              output_path=output_path,
-              resolution="LR", 
-              dataset="copernicus", 
-              unit="meter",
-              data_division=self.data_division)
+        divided_data = self.divide(data_reprojected)
+        self.write(divided_data, output_path)
         self.write_merge(data_reprojected, output_path, "copernicus_meter_merged.tif")
 
 
@@ -98,6 +95,44 @@ class Copernicus:
         reprojected = reprojected_raw.isel(x=x_keep, y=y_keep)
         
         return reprojected
+    
+
+    def divide(self, data: xr.DataArray) -> List[xr.DataArray]:
+        full_height, full_width = data.shape
+        chunk_height, chunk_width = self.target_resolution
+        chunks = []
+
+        for h in range(0, full_height, chunk_height):
+            for w in range(0, full_width, chunk_width):
+                # reassigning h and w if the chunk would go out of bounds, to not get chunks with dimensions smaller than (chunk_height, chunk_width))
+                h = min(h, full_height - chunk_height)
+                w = min(w, full_width - chunk_width)
+                chunks.append(data.isel(
+                    y=slice(h, h + chunk_height),
+                    x=slice(w, w + chunk_width),
+                ))
+                
+        return chunks
+
+
+    def write(self, data: List[xr.DataArray], output_path: Path):
+        N = len(data)
+        train_end = round(N * self.data_division.train) - 1
+        val_end = train_end + 1 + round(N * self.data_division.val) - 1
+
+        for i, chunk in enumerate(tqdm(data, desc="Writing chunks")):
+            split = "test"
+            if i <= train_end:
+                split = "train"
+            elif i <= val_end:
+                split = "val"
+
+            out_file = output_path / split / "LR" / f"copernicus_{chunk.rio.bounds()[0]:.0f}_{chunk.rio.bounds()[1]:.0f}.tif"
+
+            if out_file.exists():
+                continue
+
+            chunk.rio.to_raster(out_file)
 
 
     def write_merge(self, data: xr.DataArray, output_path: Path, filename: str):
