@@ -1,4 +1,4 @@
-from typing import Iterable, List
+from typing import List
 import pystac
 import pystac_client
 import planetary_computer
@@ -6,9 +6,8 @@ import rioxarray
 import xarray as xr
 from planetary_computer import sign
 from pathlib import Path
-from tqdm import tqdm
 import numpy as np
-from helpers import BoundingBoxDegree, BoundingBoxMeter
+from helpers import BoundingBoxDegree, BoundingBoxMeter, DataDivision, make_folders, divide, write
 from pyproj import Transformer
 
 class Copernicus:
@@ -20,36 +19,40 @@ class Copernicus:
                  aoi: BoundingBoxDegree,
                  target_resolution: tuple[int, int], 
                  target_crs: str = "EPSG:25832",
+                 data_division: DataDivision = DataDivision(train=0.8, val=0.1, test=0.1),
                  catalog: pystac_client.Client | None = None):
         """
         Args:
             aoi: Area of interest defined by bounding box (lon_min, lat_min, lon_max, lat_max).
             target_resolution: (height, width) of the chunks when dividing the data.
             target_crs: CRS to reproject DEM data to before chunking.
+            data_division: Proportions for dividing the data into train, validation, and test sets.
             catalog: Client connection to STAC API
         """
         self.aoi = aoi
-        self.catalog = catalog or pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
-                                                            modifier=planetary_computer.sign_inplace)
         self.target_resolution = target_resolution
         self.target_crs = target_crs
+        self.data_division = data_division
+        self.catalog = catalog or pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
+                                                            modifier=planetary_computer.sign_inplace)
+        
 
     def get_data(self, output_path: str | Path):
         output_path = Path(output_path)
-        output_path.mkdir(parents=True, exist_ok=True)
+        make_folders(output_path, "LR")
 
         items = self.search()
-        print(f"Found {len(items)} items. Merging and reprojecting data...")
         data = self.merge(items)
-        print("Data merged. Shape of merged data:", data.shape)
         data_reprojected = self.reproject(data)
-        print("Data reprojected. Shape of reprojected data:", data_reprojected.shape)
-        print("Dividing into chunks...")
-        divided_data = list(self.divide(data_reprojected))
-        self.write(divided_data, output_path)
+        divided_data = divide(data_reprojected, self.target_resolution)
+        write(data=divided_data, 
+              output_path=output_path,
+              resolution="LR", 
+              dataset="copernicus", 
+              unit="meter",
+              data_division=self.data_division)
+        self.write_merge(data_reprojected, output_path, "copernicus_meter_merged.tif")
 
-        # self.write_merge(data.rio.reproject(self.target_crs), output_path, "copernicus_meter_merged.tif")
-        # self.write_merge(data, output_path, "copernicus_degree_merged.tif")
 
     def search(self, collection_id: str = "cop-dem-glo-30") -> List[pystac.Item]:
         search = self.catalog.search(
@@ -63,6 +66,7 @@ class Copernicus:
         items = list(search.items())
         return items
     
+
     def merge(self, items: List[pystac.Item]) -> xr.DataArray:
         rasters = []
 
@@ -74,6 +78,7 @@ class Copernicus:
         merged = xr.combine_by_coords(rasters)
 
         return merged
+    
     
     def reproject(self, data: xr.DataArray) -> xr.DataArray:
         # bound til dataforsyningen limits
@@ -94,29 +99,6 @@ class Copernicus:
         
         return reprojected
 
-    def divide(self, data: xr.DataArray) -> Iterable[xr.DataArray]:
-        full_height, full_width = data.shape
-        chunk_height, chunk_width = self.target_resolution
-
-        for h in range(0, full_height, chunk_height):
-            for w in range(0, full_width, chunk_width):
-                # reassigning h and w if the chunk would go out of bounds, to not get chunks with dimensions smaller than (chunk_height, chunk_width))
-                h = min(h, full_height - chunk_height)
-                w = min(w, full_width - chunk_width)
-                yield data.isel(
-                    y=slice(h, h + chunk_height),
-                    x=slice(w, w + chunk_width),
-                )
-
-    def write(self, data: List[xr.DataArray], output_path: Path):
-        for chunk in tqdm(data, desc="Writing chunks"):
-            x_min, y_min, _, _ = chunk.rio.bounds()
-            out_file = output_path / f"copernicus_{x_min:.2f}_{y_min:.2f}_meter.tif"
-
-            if out_file.exists():
-                continue
-
-            chunk.rio.to_raster(out_file)
 
     def write_merge(self, data: xr.DataArray, output_path: Path, filename: str):
         """Writes the merged data to a single file. Used for testing and debugging."""
@@ -127,6 +109,7 @@ class Copernicus:
 
         data.rio.to_raster(out_file)
 
+
 def main():
     print("Downloading and processing Copernicus DEM data...")
     
@@ -135,10 +118,11 @@ def main():
     copernicus = Copernicus(aoi=midtjylland, target_resolution=resolution)
     
     current_dir = Path(__file__).parent
-    output_path = current_dir.parent / "data" / "copernicus"
+    output_path = current_dir.parent / "data"
     copernicus.get_data(output_path)
 
     print("Done.")
+
 
 if __name__ == "__main__":
     main()
