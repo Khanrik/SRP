@@ -47,7 +47,7 @@ class Dataforsyningen:
         chunks = []
         
         for division in ["train", "val", "test"]:
-            for f in list(Path(file_path / division / "LR").glob("copernicus_*_meter.tif")):
+            for f in list(Path(file_path / division / "LR").glob("*.tif")):
                 with rioxarray.open_rasterio(f) as raw_data:
                     data = raw_data.squeeze().drop_vars("band").load()
                     self.data_division_dict[id(data)] = division

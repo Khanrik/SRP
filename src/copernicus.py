@@ -16,51 +16,52 @@ class Copernicus:
     # bounding box limits for dataforsyningen in EPSG:25832
     LIMITS = BoundingBoxMeter(x_min=441000, y_min=6049000, x_max=894000, y_max=6403000)
     COP_CHUNK_SIZE_DEG = (1, 1) # how many degrees each edge of a copernicus chunk is in (lon, lat) - used to pad extra data
+    WATER_THRESHOLD = 1000 # sum of pixel values in a chunk must be above this to be included, to filter out chunks with mostly water
 
     def __init__(self,
-                 aoi: BoundingBoxDegree,
-                 target_resolution: tuple[int, int], 
-                 target_crs: str = "EPSG:25832",
-                 data_division: DataDivision = DataDivision(train=0.8, val=0.1, test=0.1),
-                 catalog: pystac_client.Client | None = None):
+                 aoi: BoundingBoxDegree, 
+                 target_crs: str = "EPSG:25832"):
         """
         Args:
             aoi: Area of interest defined by bounding box (lon_min, lat_min, lon_max, lat_max).
-            target_resolution: (height, width) of the chunks when dividing the data.
             target_crs: CRS to reproject DEM data to before chunking.
-            data_division: Proportions for dividing the data into train, validation, and test sets.
-            catalog: Client connection to STAC API
         """
         self.aoi = aoi
-        self.target_resolution = target_resolution
         self.target_crs = target_crs
-        self.data_division = data_division
-        self.catalog = catalog or pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
-                                                            modifier=planetary_computer.sign_inplace)
-        
 
-    def get_data(self, output_path: str | Path):
-        output_path = Path(output_path)
-        make_folders(output_path, "LR")
+    def get_data(self, target_resolution: tuple[int, int]) -> tuple[List[xr.DataArray], xr.DataArray]:
+        """main function to get data from copernicus
+        Args:
+            target_resolution: The desired resolution of the output chunks in pixels (height, width)
 
+        Returns:
+            divided_data,merged_data:
+            List of DEM chunks for area of interest, and full DEM before chunking.
+        """
         items = self.search()
-        data = self.merge(items)
-        data_reprojected = self.reproject(data)
-        divided_data = self.divide(data_reprojected)
-        self.write(divided_data, output_path)
-        self.write_merge(data_reprojected, output_path, "copernicus_meter_merged.tif")
+        merged_data = self.merge(items)
+        
+        if self.target_crs != str.join(":", merged_data.rio.crs.to_authority()):
+            merged_data = self.reproject(merged_data)
+
+        divided_data = self.divide(merged_data, target_resolution)
+
+        return divided_data, merged_data
 
 
     def search(self, collection_id: str = "cop-dem-glo-30") -> List[pystac.Item]:
-        search = self.catalog.search(
+        catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
+                                        modifier=planetary_computer.sign_inplace)
+        search = catalog.search(
             collections=[collection_id],
             bbox=[self.aoi.lon_min - self.COP_CHUNK_SIZE_DEG[0], 
-                  self.aoi.lat_min - self.COP_CHUNK_SIZE_DEG[1], 
-                  self.aoi.lon_max + self.COP_CHUNK_SIZE_DEG[0], 
-                  self.aoi.lat_max + self.COP_CHUNK_SIZE_DEG[1]],
+                self.aoi.lat_min - self.COP_CHUNK_SIZE_DEG[1], 
+                self.aoi.lon_max + self.COP_CHUNK_SIZE_DEG[0], 
+                self.aoi.lat_max + self.COP_CHUNK_SIZE_DEG[1]],
             query={"gsd": {"eq": 30}}
         )
         items = list(search.items())
+
         return items
     
 
@@ -97,9 +98,9 @@ class Copernicus:
         return reprojected
     
 
-    def divide(self, data: xr.DataArray) -> List[xr.DataArray]:
+    def divide(self, data: xr.DataArray, target_resolution: tuple[int, int]) -> List[xr.DataArray]:
         full_height, full_width = data.shape
-        chunk_height, chunk_width = self.target_resolution
+        chunk_height, chunk_width = target_resolution
         chunks = []
 
         for h in range(0, full_height, chunk_height):
@@ -107,18 +108,28 @@ class Copernicus:
                 # reassigning h and w if the chunk would go out of bounds, to not get chunks with dimensions smaller than (chunk_height, chunk_width))
                 h = min(h, full_height - chunk_height)
                 w = min(w, full_width - chunk_width)
-                chunks.append(data.isel(
+                chunk = data.isel(
                     y=slice(h, h + chunk_height),
                     x=slice(w, w + chunk_width),
-                ))
+                )
+
+                # filter out chunks with very little data (likely water)
+                if np.sum(chunk.values) < self.WATER_THRESHOLD:
+                    continue
+
+                chunks.append(chunk)
                 
         return chunks
 
 
-    def write(self, data: List[xr.DataArray], output_path: Path):
+    def write(self, data: List[xr.DataArray], output_path: Path, data_division: DataDivision = DataDivision(train=1, val=0, test=0)):
+        """Writes the divided data to separate files according to the specified data division."""
+        output_path = Path(output_path)
+        make_folders(output_path, "LR")
+
         N = len(data)
-        train_end = round(N * self.data_division.train) - 1
-        val_end = train_end + 1 + round(N * self.data_division.val) - 1
+        train_end = round(N * data_division.train) - 1
+        val_end = train_end + 1 + round(N * data_division.val) - 1
 
         for i, chunk in enumerate(tqdm(data, desc="Writing chunks")):
             split = "test"
@@ -137,6 +148,8 @@ class Copernicus:
 
     def write_merge(self, data: xr.DataArray, output_path: Path, filename: str):
         """Writes the merged data to a single file. Used for testing and debugging."""
+        output_path.mkdir(parents=True, exist_ok=True)
+
         out_file = output_path / filename
         
         if out_file.exists():
@@ -149,12 +162,16 @@ def main():
     print("Downloading and processing Copernicus DEM data...")
     
     midtjylland = BoundingBoxDegree(lon_min=9.0, lat_min=55.000277777777775, lon_max=9.999583333333334, lat_max=57.0)
-    resolution = (512, 512)
-    copernicus = Copernicus(aoi=midtjylland, target_resolution=resolution)
+    copernicus = Copernicus(aoi=midtjylland)
     
+    resolution = (512, 512)
+    chunks, merged_data = copernicus.get_data(target_resolution=resolution)
+
     current_dir = Path(__file__).parent
     output_path = current_dir.parent / "data"
-    copernicus.get_data(output_path)
+    data_division = DataDivision(train=0.8, val=0.1, test=0.1)
+    copernicus.write(chunks, output_path, data_division)
+    #copernicus.write_merge(merged_data, output_path, "copernicus_merged.tif")
 
     print("Done.")
 

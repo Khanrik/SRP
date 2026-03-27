@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal, List
 import xarray as xr
 from tqdm import tqdm
+import numpy
 
 @dataclass
 class BoundingBoxDegree:
@@ -20,14 +21,20 @@ class BoundingBoxMeter:
 
 @dataclass
 class DataDivision:
-    train: float
-    val: float
-    test: float
+    """A class to define the division of data into training, validation, and test sets.
+
+    All floats must be between 0 and 1 and their sum must equal 1.
+    
+    It is possible to set a paramter to 0, meaning that no data will be assigned to that set. 
+    """
+    train: float = 0
+    val: float = 0
+    test: float = 0
 
     def __post_init__(self):
-        total = sum((self.train, self.val, self.test))
+        total = sum(self.__dict__.values())
         if not abs(total - 1.0) < 1e-6:
-            raise ValueError("The sum of train, val, and test proportions must equal 1.")
+            raise ValueError("The sum of non bool train, val, and test proportions must equal 1.")
 
 def make_folders(output_path: Path, resolution: Literal["LR", "HR"]):
     for split in ["train", "val", "test"]:
