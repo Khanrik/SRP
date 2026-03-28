@@ -87,6 +87,7 @@ def main():
     resolution = (512, 512)
     copernicus = Copernicus(target_resolution=resolution)
     copernicus.get_data(output_path)
+    
 
 if __name__ == "__main__":
     main()
