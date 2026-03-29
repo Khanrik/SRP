@@ -1,5 +1,7 @@
+from param import output
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 from contextlib import nullcontext
 from PIL import Image
 from torch import optim
@@ -102,7 +104,7 @@ class Trainer:
         self.pin_memory = device == "cuda"
         self.num_workers = 0
         self.use_amp = device == "cuda"
-        self.scaler = GradScaler(enabled=self.use_amp)
+        self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp)
         self.max_pixels_per_image = max_pixels_per_image
         self.profile_layers_once = profile_layers_once
 
@@ -171,6 +173,7 @@ class Trainer:
             return
 
         hooks = [] # Note to self: this is a simple way to profile layer activations for debugging and analysis.
+        activations=[] # For plotting.
 
         def hook_fn(name):
             def _hook(_module, _inp, out):
@@ -179,14 +182,19 @@ class Trainer:
                     print(f"[layer] {name}: shape={tuple(out.shape)} approx={out_mb:.2f}MB")
             return _hook 
         
+        def save_activation_hook(module, input, output):
+            activations.append(output.cpu().detach().numpy())
+
         # Going through all layers and registering hooks on conv and pooling layers 
         # to log their output shapes and memory usage during the first forward pass
         for name, module in self.model.named_modules():
             if isinstance(module, (nn.Conv2d, nn.ConvTranspose2d, nn.MaxPool2d)): # We can add more layer types if needed
                 hooks.append(module.register_forward_hook(hook_fn(name)))
+                hooks.append(module.register_forward_hook(save_activation_hook))
 
         # Run a forward pass with the sample batch to trigger the hooks and log layer outputs
         self.model.eval() 
+
         with torch.no_grad(): 
             # Enables autocasting for the forward pass if using mixed precision (use_amp=true), 
             # which can reduce memory usage and is important to profile accurately.
@@ -200,6 +208,16 @@ class Trainer:
 
         for hook in hooks:
             hook.remove()
+        
+        
+        
+        for i, activation in enumerate(activations[0][0]):  # Visualize the first batch
+            plt.subplot(4, 8, i+1)
+            plt.title(f"Layer {i+1}")
+            plt.imshow(activation, cmap='viridis')
+            plt.axis('off')
+
+        plt.show()
         self.profile_layers_once = False
 
     def _prepare_dataloaders(self, train_dataset, val_dataset, test_dataset, batch_size):
@@ -380,16 +398,99 @@ class Trainer:
         # Saving the model
         torch.save(self.model.state_dict(), 'my_checkpoint.pth')
         return train_losses, train_dcs, val_losses, val_dcs
+    
+class plotter:
+    def __init__(self, train_losses, train_dcs, val_losses, val_dcs):
+        """Returns: Self.
+        Args:
+            train_losses: List of training losses per epoch.
+            train_dcs: List of training difference coefficients per epoch.
+            val_losses: List of validation losses per epoch.
+            val_dcs: List of validation difference coefficients per epoch.
+        
+        """
+        self.train_losses = train_losses
+        self.train_dcs = train_dcs
+        self.val_losses = val_losses
+        self.val_dcs = val_dcs
+    
+    def plot(self):
+        """Returns: Self.
+        Args:
+            None
+        
+        """
+        epochs = range(1, len(self.train_losses) + 1)
+
+        plt.figure(figsize=(12, 5))
+        plt.subplot(1, 2, 1)
+        plt.plot(epochs, self.train_losses, label='Train Loss')
+        plt.plot(epochs, self.val_losses, label='Val Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Training and Validation Loss')
+        plt.legend()
+
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs, self.train_dcs, label='Train Diff Coeff')
+        plt.plot(epochs, self.val_dcs, label='Val Diff Coeff')
+        plt.xlabel('Epoch')
+        plt.ylabel('Difference Coefficient')
+        plt.title('Training and Validation Difference Coefficient')
+        plt.legend()
+
+        plt.tight_layout()
+        plt.show()
+
+class Tester:
+    def __init__(self, model, device):
+        """Returns: Self. Initializes the Tester with the trained model and device.
+        Args:
+            model: The trained neural network model to be tested.
+            device: The device to run the model on, eg. "cuda" or "cpu".
+        
+        """
+        self.model = model
+        self.device = device
+    
+    def test(self, test_dataloader):
+        """Returns: test loss and difference coefficient for the test dataset.
+        Args:
+            test_dataloader: DataLoader for the test dataset.
+        
+        """
+        self.model.eval()
+        test_running_loss = 0
+        test_running_dc = 0
+        
+        with torch.no_grad():
+            for idx, LR_HR in enumerate(tqdm(test_dataloader, position=0, leave=True)):
+                LR = LR_HR[0].float().to(self.device)
+                HR = LR_HR[1].float().to(self.device)
+
+                y_pred = self.model(LR)
+                loss = nn.SmoothL1Loss()(y_pred, HR)
+                dc = self._diff_in_height_coefficient(y_pred, HR)
+                
+                test_running_loss += loss.item()
+                test_running_dc += dc.item()
+
+        test_loss = test_running_loss / (idx + 1)
+        test_dc = test_running_dc / (idx + 1)
+
+        print(f"Test Loss: {test_loss:.4f}")
+        print(f"Test Difference Coefficient: {test_dc:.4f}")
+        return test_loss, test_dc
 
 
 def main():
     current_dir = Path(__file__).parent
     data_root = current_dir.parent / "data"  # Contains train/, val/, test/
-    basesize = 128*2
-    #LR_RESIZE_TO = (basesize, basesize)
-    #HR_RESIZE_TO = (basesize*3, basesize*3)
+    basesize = 128
     LR_RESIZE_TO = None
     HR_RESIZE_TO = None
+    LR_RESIZE_TO = (basesize, basesize)
+    HR_RESIZE_TO = (basesize*3, basesize*3)
     train_dataset = SegmentationFolderDataset(
         data_root / "train", lr_resize_to=LR_RESIZE_TO, hr_resize_to=HR_RESIZE_TO
     )
@@ -412,9 +513,16 @@ def main():
 
     trainer = Trainer(model, optimizer, criterion, device, learning_rate=LEARNING_RATE)
     train_losses, train_dcs, val_losses, val_dcs = \
-        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=10, batch_size=BATCH_SIZE)
+        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=6, batch_size=BATCH_SIZE)
     print(f"Training complete. \n Final training loss and dc: {train_losses[-1]:.4f}, {train_dcs[-1]:.4f}")
     print(f"Validation loss and dc: {val_losses[-1]:.4f}, {val_dcs[-1]:.4f}")
+    plotter(train_losses, train_dcs, val_losses, val_dcs).plot()
+
+    model_pth = current_dir / "my_checkpoint.pth"
+    trained_model = UNet(in_channels=3, num_classes=1).to(device)
+    trained_model.load_state_dict(torch.load(model_pth, map_location=torch.device(device)))
+    tester= Tester(trained_model, device)
+    tester.test(trainer.test_dataloader)
 
 if __name__ == "__main__":
     main()
