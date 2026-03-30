@@ -211,3 +211,6 @@ __marimo__/
 data/*
 working/*
 src/carvana-image-masking-challenge/*
+
+# checkpoints and logs
+my_checkpoint.pth

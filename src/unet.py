@@ -13,7 +13,38 @@ from tqdm import tqdm
 from pathlib import Path
 from unet_helper import UNet
 
+def diff_in_height_coefficient(prediction, target):
+        # For height prediction, we can use mean absolute error as a simple "difference in height coefficient".
+        difference = torch.mean(torch.abs(prediction - target))
+        return difference
 
+class SmoothGradLoss(nn.Module):
+    def __init__(self, beta=1.0, lambda_grad=0.2):
+        super().__init__()
+        """Returns: Self. Custom loss func.
+        Args:
+            beta: The beta parameter for the SmoothL1Loss, controls the transition point between L1 and L2 loss. (Default 1.0).
+            lambda_grad: The weight for the gradient loss component, encourages smoothness in the predictions. (Default 0.2).
+        """
+        self.pixel = nn.SmoothL1Loss(beta=beta)
+        self.grad = nn.L1Loss()
+        self.lambda_grad = lambda_grad
+
+    def forward(self, pred, target):
+        """Returns: Loss value
+        Args:
+            pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
+            target: The ground truth target tensor of the same shape as pred.
+        """
+        pixel_loss = self.pixel(pred, target)
+    
+        pred_dx = pred[:, :, :, 1:] - pred[:, :, :, :-1]
+        pred_dy = pred[:, :, 1:, :] - pred[:, :, :-1, :]
+        tgt_dx = target[:, :, :, 1:] - target[:, :, :, :-1]
+        tgt_dy = target[:, :, 1:, :] - target[:, :, :-1, :]
+
+        grad_loss = self.grad(pred_dx, tgt_dx) + self.grad(pred_dy, tgt_dy)
+        return pixel_loss + self.lambda_grad * grad_loss
 
 class SegmentationFolderDataset(Dataset):
     def __init__(
@@ -107,11 +138,6 @@ class Trainer:
         self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp)
         self.max_pixels_per_image = max_pixels_per_image
         self.profile_layers_once = profile_layers_once
-
-    def _diff_in_height_coefficient(self, prediction, target):
-        # For height prediction, we can use mean absolute error as a simple "difference in height coefficient".
-        difference = torch.mean(torch.abs(prediction - target))
-        return difference
 
     def _tensor_mb(self, tensor):
         # Calculate the approximate memory usage of a tensor in megabytes. 
@@ -334,7 +360,7 @@ class Trainer:
                 
                 # Using set_to_none=True to reduce memory usage by freeing gradients immediately after backward pass.
                 self.optimizer.zero_grad(set_to_none=True) 
-                dc = self._diff_in_height_coefficient(y_pred.float(), HR)
+                dc = diff_in_height_coefficient(y_pred.float(), HR)
 
                 train_running_loss += loss.item()
                 train_running_dc += dc.item()
@@ -373,7 +399,7 @@ class Trainer:
                         y_pred = self.model(LR)
                         self._validate_batch_shapes(LR, HR, y_pred)
                         loss = self.criterion(y_pred, HR)
-                    dc = self._diff_in_height_coefficient(y_pred, HR)
+                    dc = diff_in_height_coefficient(y_pred, HR)
                     
                     val_running_loss += loss.item()
                     val_running_dc += dc.item()
@@ -400,7 +426,15 @@ class Trainer:
         return train_losses, train_dcs, val_losses, val_dcs
     
 class plotter:
-    def __init__(self, train_losses, train_dcs, val_losses, val_dcs):
+    def __init__(self):
+        """Returns: Self.
+        Args:
+            None
+        
+        """
+        
+    
+    def plot_val_and_train_loss(self, train_losses, train_dcs, val_losses, val_dcs):
         """Returns: Self.
         Args:
             train_losses: List of training losses per epoch.
@@ -409,31 +443,20 @@ class plotter:
             val_dcs: List of validation difference coefficients per epoch.
         
         """
-        self.train_losses = train_losses
-        self.train_dcs = train_dcs
-        self.val_losses = val_losses
-        self.val_dcs = val_dcs
-    
-    def plot(self):
-        """Returns: Self.
-        Args:
-            None
-        
-        """
-        epochs = range(1, len(self.train_losses) + 1)
+        epochs = range(1, len(train_losses) + 1)
 
         plt.figure(figsize=(12, 5))
         plt.subplot(1, 2, 1)
-        plt.plot(epochs, self.train_losses, label='Train Loss')
-        plt.plot(epochs, self.val_losses, label='Val Loss')
+        plt.plot(epochs, train_losses, label='Train Loss')
+        plt.plot(epochs, val_losses, label='Val Loss')
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
         plt.title('Training and Validation Loss')
         plt.legend()
 
         plt.subplot(1, 2, 2)
-        plt.plot(epochs, self.train_dcs, label='Train Diff Coeff')
-        plt.plot(epochs, self.val_dcs, label='Val Diff Coeff')
+        plt.plot(epochs, train_dcs, label='Train Diff Coeff')
+        plt.plot(epochs, val_dcs, label='Val Diff Coeff')
         plt.xlabel('Epoch')
         plt.ylabel('Difference Coefficient')
         plt.title('Training and Validation Difference Coefficient')
@@ -441,17 +464,70 @@ class plotter:
 
         plt.tight_layout()
         plt.show()
+    def plot_training_images(self, LR, HR, prediction, train_loss, train_dc):
+        """Returns: Self.
+        Args:
+            LR: Low-resolution input image tensor.
+            HR: High-resolution target image tensor.
+            prediction: Model's predicted high-resolution image tensor.
+            train_loss: Current training loss.
+            train_dc: Current training difference coefficient.
+
+        """
+        difference_tensor = torch.abs(prediction - HR)
+        def _to_plot_array(tensor):
+            # Handling the batch dimension and channel dimension for plotting.
+            tensor = tensor.detach().cpu()
+            if tensor.ndim == 4:
+                tensor = tensor[0]  # Display first image in the batch.
+            if tensor.ndim == 3:
+                if tensor.shape[0] == 1:
+                    tensor = tensor[0]
+                elif tensor.shape[0] in (3, 4):
+                    tensor = tensor.permute(1, 2, 0)
+                else:
+                    tensor = tensor[0]
+            if tensor.ndim != 2 and tensor.ndim != 3:
+                raise ValueError(f"Unsupported tensor shape for plotting: {tuple(tensor.shape)}")
+            return tensor.numpy()
+
+        LR_img = _to_plot_array(LR)
+        HR_img = _to_plot_array(HR)
+        pred_img = _to_plot_array(prediction)
+
+        plt.figure(figsize=(15, 5))
+        plt.subplot(1, 3, 1)
+        plt.title('Low-Resolution Input')
+        plt.imshow(LR_img, cmap='gray' if LR_img.ndim == 2 else None)
+        plt.axis('off')
+
+        plt.subplot(1, 3, 2)
+        plt.title('High-Resolution Target')
+        plt.imshow(HR_img, cmap='gray' if HR_img.ndim == 2 else None)
+        plt.axis('off')
+
+        plt.subplot(1, 3, 3)
+        plt.title('Model Prediction')
+        plt.imshow(pred_img, cmap='gray' if pred_img.ndim == 2 else None)
+        plt.axis('off')
+
+        plt.suptitle(f"Train Loss: {train_loss:.4f}, Train Diff Coeff: {train_dc:.4f}")
+        plt.tight_layout()
+        plt.show()
 
 class Tester:
-    def __init__(self, model, device):
+    def __init__(self, model, device,criterion=nn.SmoothL1Loss()):
         """Returns: Self. Initializes the Tester with the trained model and device.
         Args:
             model: The trained neural network model to be tested.
             device: The device to run the model on, eg. "cuda" or "cpu".
+            criterion: The loss function to be used for testing.
         
         """
         self.model = model
         self.device = device
+        self.criterion = criterion
+
     
     def test(self, test_dataloader):
         """Returns: test loss and difference coefficient for the test dataset.
@@ -462,18 +538,22 @@ class Tester:
         self.model.eval()
         test_running_loss = 0
         test_running_dc = 0
-        
+        first_prediction = None
+
         with torch.no_grad():
             for idx, LR_HR in enumerate(tqdm(test_dataloader, position=0, leave=True)):
                 LR = LR_HR[0].float().to(self.device)
                 HR = LR_HR[1].float().to(self.device)
 
                 y_pred = self.model(LR)
-                loss = nn.SmoothL1Loss()(y_pred, HR)
-                dc = self._diff_in_height_coefficient(y_pred, HR)
+                loss = self.criterion(y_pred, HR)
+                dc = diff_in_height_coefficient(y_pred, HR)
                 
                 test_running_loss += loss.item()
                 test_running_dc += dc.item()
+                if idx == 0:
+                    first_prediction = y_pred.cpu().detach().numpy()
+                    plotter().plot_training_images(LR, HR, y_pred,test_running_loss, test_running_dc)
 
         test_loss = test_running_loss / (idx + 1)
         test_dc = test_running_dc / (idx + 1)
@@ -501,7 +581,7 @@ def main():
         data_root / "test", lr_resize_to=LR_RESIZE_TO, hr_resize_to=HR_RESIZE_TO
     )
 
-    LEARNING_RATE = 3e-4
+    LEARNING_RATE = 2e-4
     BATCH_SIZE = 3
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -509,19 +589,19 @@ def main():
         torch.cuda.empty_cache()
     model = UNet(in_channels=1, num_classes=1).to(device)
     optimizer = optim.AdamW
-    criterion = nn.SmoothL1Loss()
+    criterion = SmoothGradLoss(beta=1.0, lambda_grad=0.1)
 
     trainer = Trainer(model, optimizer, criterion, device, learning_rate=LEARNING_RATE)
     train_losses, train_dcs, val_losses, val_dcs = \
-        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=6, batch_size=BATCH_SIZE)
+        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=10, batch_size=BATCH_SIZE)
     print(f"Training complete. \n Final training loss and dc: {train_losses[-1]:.4f}, {train_dcs[-1]:.4f}")
     print(f"Validation loss and dc: {val_losses[-1]:.4f}, {val_dcs[-1]:.4f}")
-    plotter(train_losses, train_dcs, val_losses, val_dcs).plot()
+    plotter().plot_val_and_train_loss(train_losses, train_dcs, val_losses, val_dcs)
 
-    model_pth = current_dir / "my_checkpoint.pth"
-    trained_model = UNet(in_channels=3, num_classes=1).to(device)
-    trained_model.load_state_dict(torch.load(model_pth, map_location=torch.device(device)))
-    tester= Tester(trained_model, device)
+    model_pth = current_dir.parent / "my_checkpoint.pth"
+    trained_model = UNet(in_channels=1, num_classes=1).to(device)
+    trained_model.load_state_dict(torch.load(model_pth, map_location=torch.device(device),weights_only=True))
+    tester= Tester(trained_model, device, criterion)
     tester.test(trainer.test_dataloader)
 
 if __name__ == "__main__":
