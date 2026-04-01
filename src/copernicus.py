@@ -15,8 +15,12 @@ from tqdm import tqdm
 class Copernicus:
     # bounding box limits for dataforsyningen in EPSG:25832
     LIMITS = BoundingBoxMeter(x_min=441000, y_min=6049000, x_max=894000, y_max=6403000)
-    COP_CHUNK_SIZE_DEG = (1, 1) # how many degrees each edge of a copernicus chunk is in (lon, lat) - used to pad extra data
-    WATER_THRESHOLD = 1000 # sum of pixel values in a chunk must be above this to be included, to filter out chunks with mostly water
+
+    # how many degrees each edge of a copernicus chunk is in (lon, lat) - used to pad extra data
+    COP_CHUNK_SIZE_DEG = (1, 1)
+
+    # sum of pixel values in a chunk must be above this to be included to filter out chunks with mostly water
+    WATER_THRESHOLD = 1000 
 
     def __init__(self,
                  aoi: BoundingBoxDegree, 
@@ -72,8 +76,9 @@ class Copernicus:
             signed = sign(item.assets["data"])
             with rioxarray.open_rasterio(signed.href) as data:
                 rasters.append(data.squeeze().drop_vars("band").load())
-            
-        merged = xr.combine_by_coords(rasters)
+        
+        print("Merging chunks...")
+        merged = xr.combine_by_coords(rasters, join="outer")
 
         return merged
     
@@ -122,23 +127,28 @@ class Copernicus:
         return chunks
 
 
-    def write(self, data: List[xr.DataArray], output_path: Path, data_division: DataDivision = DataDivision(train=1, val=0, test=0)):
-        """Writes the divided data to separate files according to the specified data division."""
-        output_path = Path(output_path)
-        make_folders(output_path, "LR")
+    def write(self, data: List[xr.DataArray], output_path: Path, data_division: DataDivision):
+        """Writes the divided data to files according to the specified data division."""
+        if data_division.no_division:
+            output_path.mkdir(parents=True, exist_ok=True)
+        else:
+            make_folders(output_path, "LR")
 
         N = len(data)
         train_end = round(N * data_division.train) - 1
         val_end = train_end + 1 + round(N * data_division.val) - 1
 
         for i, chunk in enumerate(tqdm(data, desc="Writing chunks")):
-            split = "test"
-            if i <= train_end:
-                split = "train"
+            if data_division.no_division:
+                split = ""
+            elif i <= train_end:
+                split = "train/LR"
             elif i <= val_end:
-                split = "val"
+                split = "val/LR"
+            else:
+                split = "test/LR"
 
-            out_file = output_path / split / "LR" / f"copernicus_{chunk.rio.bounds()[0]:.0f}_{chunk.rio.bounds()[1]:.0f}.tif"
+            out_file = output_path / split / f"copernicus_{chunk.rio.bounds()[0]:.0f}_{chunk.rio.bounds()[1]:.0f}.tif"
 
             if out_file.exists():
                 continue

@@ -26,14 +26,19 @@ class DataDivision:
     All floats must be between 0 and 1 and their sum must equal 1.
     
     It is possible to set a paramter to 0, meaning that no data will be assigned to that set. 
+
+    If `no_division` is set to True, all data will be written to a single folder (`output_path`) instead of being divided into train, val, and test folders.
     """
     train: float = 0
     val: float = 0
     test: float = 0
+    no_division: bool = False
 
     def __post_init__(self):
         total = sum(self.__dict__.values())
-        if not abs(total - 1.0) < 1e-6:
+        if self.no_division:
+            return
+        if abs(total - 1.0) > 1e-6:
             raise ValueError("The sum of non bool train, val, and test proportions must equal 1.")
 
 def make_folders(output_path: Path, resolution: Literal["LR", "HR"]):

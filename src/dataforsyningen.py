@@ -17,7 +17,6 @@ class Dataforsyningen:
         """
         Args:
             target_resolution: The desired resolution of the DEM data in meters per pixel.
-            data_division: Proportions for dividing the data into train, validation, and test sets.
         """
         self.meters_per_pixel = target_resolution
         self.data_division_dict = {}
@@ -36,8 +35,7 @@ class Dataforsyningen:
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
 
-    def get_data(self, output_path: str | Path):
-        output_path = Path(output_path)
+    def get_data(self, output_path: Path):
         make_folders(output_path, "HR")
 
         cop_chunks = self.read_copernicus(output_path)
