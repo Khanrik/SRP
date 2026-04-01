@@ -51,7 +51,7 @@ class Dataforsyningen:
                     self.data_division_dict[id(data)] = division
                     chunks.append(data)
 
-        self.upscale_factor = round(chunks[0].rio.resolution()[0]) // self.meters_per_pixel
+        self.upscale_factor = round(chunks[0].rio.resolution()[0] / self.meters_per_pixel)
 
         return chunks
 

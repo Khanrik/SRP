@@ -55,8 +55,11 @@ def get_denmark_data(output_path: Path,
     else:
         # Calculate proportions for data division so the amount of validation and test data are the same
         jutland_len = len(denmark_data["west_jutland"].divided_data) + len(denmark_data["east_jutland"].divided_data)
+        print(f"Total length of jutland data: {jutland_len}")
         zealand_len = len(denmark_data["zealand"].divided_data)
-        val_proportion = zealand_len // (jutland_len + zealand_len)
+        print(f"Total length of zealand data: {zealand_len}")
+        val_proportion = zealand_len / jutland_len
+        print(f"Calculated validation proportion for jutland data: {val_proportion:.2f}")
         denmark_data["west_jutland"].data_divsion = DataDivision(train=1-val_proportion, val=val_proportion, test=0)
         denmark_data["east_jutland"].data_divsion = DataDivision(train=1-val_proportion, val=val_proportion, test=0)
     denmark_data["zealand"].data_divsion = DataDivision(train=0, val=0, test=1)
