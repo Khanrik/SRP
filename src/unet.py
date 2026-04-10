@@ -13,7 +13,12 @@ from tqdm import tqdm
 from pathlib import Path
 from unet_helper import UNet
 
-def diff_in_height_coefficient(prediction, target):
+def diff_in_height_coefficient(prediction, target) :
+        """Returns: Difference as tensor.
+        Args:
+            prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
+            target: The ground truth target tensor of the same shape as prediction.
+        """
         # For height prediction, we can use mean absolute error as a simple "difference in height coefficient".
         difference = torch.mean(torch.abs(prediction - target))
         return difference
@@ -23,8 +28,8 @@ class SmoothGradLoss(nn.Module):
         super().__init__()
         """Returns: Self. Custom loss func.
         Args:
-            beta: The beta parameter for the SmoothL1Loss, controls the transition point between L1 and L2 loss. (Default 1.0).
-            lambda_grad: The weight for the gradient loss component, encourages smoothness in the predictions. (Default 0.2).
+            beta: The beta parameter for the SmoothL1Loss, controls the transition point between L1 and L2 loss. (Default 1.0, values 0.0-1.0 ).
+            lambda_grad: The weight for the gradient loss component, encourages smoothness in the predictions. (Default 0.2, values 0.0-1.0 ).
         """
         self.pixel = nn.SmoothL1Loss(beta=beta)
         self.grad = nn.L1Loss()
@@ -117,7 +122,18 @@ class SegmentationFolderDataset(Dataset):
 
 
 class Trainer:
-    def __init__(self, model, optimizer, criterion, device, learning_rate=3e-4, max_pixels_per_image=1024*1024, profile_layers_once=True):
+    def __init__(
+        self,
+        model,
+        optimizer,
+        criterion,
+        device,
+        learning_rate=3e-4,
+        max_pixels_per_image=1024*1024,
+        profile_layers_once=True,
+        normalize_targets=False,
+        target_norm_eps=1e-6,
+    ):
         """ Returns: Self. Initializes the Trainer with the model, optimizer, loss function, device, and learning rate.
         Args:
             model: The neural network model.
@@ -138,6 +154,56 @@ class Trainer:
         self.scaler = torch.amp.GradScaler('cuda', enabled=self.use_amp)
         self.max_pixels_per_image = max_pixels_per_image
         self.profile_layers_once = profile_layers_once
+        self.normalize_targets = normalize_targets
+        self.target_norm_eps = target_norm_eps
+        self.target_mean = None
+        self.target_std = None
+
+    def _compute_target_norm_stats(self, dataset, stats_batch_size):
+        # Compute train-target mean/std once so normalization can be toggled on safely.
+        stats_loader = DataLoader(
+            dataset=dataset,
+            batch_size=stats_batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=False,
+            persistent_workers=False,
+        )
+
+        total_sum = 0.0
+        total_sq_sum = 0.0
+        total_count = 0
+        with torch.no_grad():
+            for _, hr in stats_loader:
+                hr = hr.float()
+                total_sum += hr.sum().item()
+                total_sq_sum += (hr * hr).sum().item()
+                total_count += hr.numel()
+
+        if total_count == 0:
+            raise ValueError("Cannot compute normalization stats from an empty training dataset.")
+
+        mean = total_sum / total_count
+        variance = max((total_sq_sum / total_count) - (mean * mean), 0.0)
+        std = max(variance ** 0.5, self.target_norm_eps) # Avoid zero std with epsilon floor.
+
+        self.target_mean = mean
+        self.target_std = std
+        print(f"[norm] target_mean={self.target_mean:.6f} target_std={self.target_std:.6f}")
+
+    def _normalize_target(self, target):
+        if not self.normalize_targets:
+            return target
+        if self.target_mean is None or self.target_std is None:
+            raise ValueError("Normalization is enabled but target stats are not initialized.")
+        return (target - self.target_mean) / self.target_std
+
+    def _denormalize_target(self, target):
+        if not self.normalize_targets:
+            return target
+        if self.target_mean is None or self.target_std is None:
+            raise ValueError("Normalization is enabled but target stats are not initialized.")
+        return target * self.target_std + self.target_mean
 
     def _tensor_mb(self, tensor):
         # Calculate the approximate memory usage of a tensor in megabytes. 
@@ -198,7 +264,7 @@ class Trainer:
         if not self.profile_layers_once:
             return
 
-        hooks = [] # Note to self: this is a simple way to profile layer activations for debugging and analysis.
+        hooks = [] 
         activations=[] # For plotting.
 
         def hook_fn(name):
@@ -290,6 +356,9 @@ class Trainer:
         """
         train_dataloader, val_dataloader, test_dataloader = \
             self._prepare_dataloaders(train_dataset, val_dataset, test_dataset, batch_size)
+
+        if self.normalize_targets:
+            self._compute_target_norm_stats(train_dataset, batch_size)
         
         if train_dataloader is None or val_dataloader is None or test_dataloader is None:
             raise ValueError(
@@ -329,6 +398,7 @@ class Trainer:
                 # creating LR and HR tensors for the batch and moving them to the correct device.
                 LR = LR_HR[0].float().to(self.device) 
                 HR = LR_HR[1].float().to(self.device)
+                HR_for_loss = self._normalize_target(HR)
 
                 if epoch == 0 and idx == 0:
                     # Profiling for memory usage stats to avoid OOM errors.
@@ -346,10 +416,10 @@ class Trainer:
                     with autocast_ctx:
                         # Forward pass through the model to get predictions, and calculating the loss with the criterion.
                         y_pred = self.model(LR)
-                        self._validate_batch_shapes(LR, HR, y_pred)
-                        loss = self.criterion(y_pred, HR)
+                        self._validate_batch_shapes(LR, HR_for_loss, y_pred)
+                        loss = self.criterion(y_pred, HR_for_loss)
                 except RuntimeError as err:
-                    if "out of memory" in str(err).lower():
+                    if "not enough memory" in str(err).lower():
                         # catching OOM errors during the forward pass or loss calculation.
                         if self.device == "cuda":
                             torch.cuda.empty_cache() 
@@ -360,7 +430,8 @@ class Trainer:
                 
                 # Using set_to_none=True to reduce memory usage by freeing gradients immediately after backward pass.
                 self.optimizer.zero_grad(set_to_none=True) 
-                dc = diff_in_height_coefficient(y_pred.float(), HR)
+                y_pred_eval = self._denormalize_target(y_pred)
+                dc = diff_in_height_coefficient(y_pred_eval.float(), HR)
 
                 train_running_loss += loss.item()
                 train_running_dc += dc.item()
@@ -372,7 +443,7 @@ class Trainer:
                 self.scaler.update()
 
                 if idx == 0:
-                    self._log_shape_and_memory("train", epoch, idx, LR, HR, y_pred)
+                    self._log_shape_and_memory("train", epoch, idx, LR, HR, y_pred_eval)
 
             train_loss = train_running_loss / (idx + 1)
             train_dc = train_running_dc / (idx + 1)
@@ -389,6 +460,7 @@ class Trainer:
                 for idx, LR_HR in enumerate(tqdm(val_dataloader, position=0, leave=True)):
                     LR = LR_HR[0].float().to(self.device)
                     HR = LR_HR[1].float().to(self.device)
+                    HR_for_loss = self._normalize_target(HR)
 
                     autocast_ctx = (
                         torch.autocast(device_type=self.device, dtype=torch.float16)
@@ -397,15 +469,16 @@ class Trainer:
                     )
                     with autocast_ctx:
                         y_pred = self.model(LR)
-                        self._validate_batch_shapes(LR, HR, y_pred)
-                        loss = self.criterion(y_pred, HR)
-                    dc = diff_in_height_coefficient(y_pred, HR)
+                        self._validate_batch_shapes(LR, HR_for_loss, y_pred)
+                        loss = self.criterion(y_pred, HR_for_loss)
+                    y_pred_eval = self._denormalize_target(y_pred)
+                    dc = diff_in_height_coefficient(y_pred_eval, HR)
                     
                     val_running_loss += loss.item()
                     val_running_dc += dc.item()
 
                     if idx == 0:
-                        self._log_shape_and_memory("val", epoch, idx, LR, HR, y_pred)
+                        self._log_shape_and_memory("val", epoch, idx, LR, HR, y_pred_eval)
 
                 val_loss = val_running_loss / (idx + 1)
                 val_dc = val_running_dc / (idx + 1)
@@ -464,6 +537,7 @@ class plotter:
 
         plt.tight_layout()
         plt.show()
+
     def plot_training_images(self, LR, HR, prediction, train_loss, train_dc):
         """Returns: Self.
         Args:
@@ -516,7 +590,15 @@ class plotter:
         plt.show()
 
 class Tester:
-    def __init__(self, model, device,criterion=nn.SmoothL1Loss()):
+    def __init__(
+        self,
+        model,
+        device,
+        criterion=nn.SmoothL1Loss(),
+        normalize_targets=False,
+        target_mean=None,
+        target_std=None,
+    ):
         """Returns: Self. Initializes the Tester with the trained model and device.
         Args:
             model: The trained neural network model to be tested.
@@ -527,6 +609,16 @@ class Tester:
         self.model = model
         self.device = device
         self.criterion = criterion
+        self.normalize_targets = normalize_targets
+        self.target_mean = target_mean
+        self.target_std = target_std
+
+    def _denormalize_target(self, target):
+        if not self.normalize_targets:
+            return target
+        if self.target_mean is None or self.target_std is None:
+            raise ValueError("Normalization is enabled but target_mean/target_std are not set.")
+        return target * self.target_std + self.target_mean
 
     
     def test(self, test_dataloader):
@@ -546,14 +638,15 @@ class Tester:
                 HR = LR_HR[1].float().to(self.device)
 
                 y_pred = self.model(LR)
-                loss = self.criterion(y_pred, HR)
-                dc = diff_in_height_coefficient(y_pred, HR)
+                y_pred_eval = self._denormalize_target(y_pred)
+                loss = self.criterion(y_pred_eval, HR)
+                dc = diff_in_height_coefficient(y_pred_eval, HR)
                 
                 test_running_loss += loss.item()
                 test_running_dc += dc.item()
                 if idx == 0:
-                    first_prediction = y_pred.cpu().detach().numpy()
-                    plotter().plot_training_images(LR, HR, y_pred,test_running_loss, test_running_dc)
+                    first_prediction = y_pred_eval.cpu().detach().numpy()
+                    plotter().plot_training_images(LR, HR, y_pred_eval, test_running_loss, test_running_dc)
 
         test_loss = test_running_loss / (idx + 1)
         test_dc = test_running_dc / (idx + 1)
@@ -566,6 +659,7 @@ class Tester:
 def main():
     current_dir = Path(__file__).parent
     data_root = current_dir.parent / "data"  # Contains train/, val/, test/
+
     basesize = 128
     LR_RESIZE_TO = None
     HR_RESIZE_TO = None
@@ -583,17 +677,27 @@ def main():
 
     LEARNING_RATE = 2e-4
     BATCH_SIZE = 3
+    NORMALIZE_TARGETS = True
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cuda":
         torch.cuda.empty_cache()
     model = UNet(in_channels=1, num_classes=1).to(device)
     optimizer = optim.AdamW
-    criterion = SmoothGradLoss(beta=1.0, lambda_grad=0.1)
+    criterion = SmoothGradLoss(beta=1.0, lambda_grad=0.2)
 
-    trainer = Trainer(model, optimizer, criterion, device, learning_rate=LEARNING_RATE)
+    trainer = Trainer(
+        model,
+        optimizer,
+        criterion,
+        device,
+        learning_rate=LEARNING_RATE,
+        normalize_targets=NORMALIZE_TARGETS,
+    )
+    #flattens out at about 38 epochs
     train_losses, train_dcs, val_losses, val_dcs = \
-        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=10, batch_size=BATCH_SIZE)
+        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=8, batch_size=BATCH_SIZE) 
+    
     print(f"Training complete. \n Final training loss and dc: {train_losses[-1]:.4f}, {train_dcs[-1]:.4f}")
     print(f"Validation loss and dc: {val_losses[-1]:.4f}, {val_dcs[-1]:.4f}")
     plotter().plot_val_and_train_loss(train_losses, train_dcs, val_losses, val_dcs)
@@ -601,7 +705,15 @@ def main():
     model_pth = current_dir.parent / "my_checkpoint.pth"
     trained_model = UNet(in_channels=1, num_classes=1).to(device)
     trained_model.load_state_dict(torch.load(model_pth, map_location=torch.device(device),weights_only=True))
-    tester= Tester(trained_model, device, criterion)
+
+    tester = Tester(
+        trained_model,
+        device,
+        criterion,
+        normalize_targets=trainer.normalize_targets,
+        target_mean=trainer.target_mean,
+        target_std=trainer.target_std,
+    )
     tester.test(trainer.test_dataloader)
 
 if __name__ == "__main__":
