@@ -1,3 +1,6 @@
+from importlib.resources import path
+import os
+
 from param import output
 import torch
 import torch.nn as nn
@@ -495,7 +498,9 @@ class Trainer:
             print("-" * 30)
 
         # Saving the model
-        torch.save(self.model.state_dict(), 'my_checkpoint.pth')
+        path = 'checkpoints'
+        os.makedirs(path, exist_ok = True) 
+        torch.save(self.model.state_dict(), os.path.join(path, 'my_checkpoint.pth'))
         return train_losses, train_dcs, val_losses, val_dcs
     
 class plotter:
@@ -696,13 +701,13 @@ def main():
     )
     #flattens out at about 38 epochs
     train_losses, train_dcs, val_losses, val_dcs = \
-        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=8, batch_size=BATCH_SIZE) 
+        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=2, batch_size=BATCH_SIZE) 
     
     print(f"Training complete. \n Final training loss and dc: {train_losses[-1]:.4f}, {train_dcs[-1]:.4f}")
     print(f"Validation loss and dc: {val_losses[-1]:.4f}, {val_dcs[-1]:.4f}")
     plotter().plot_val_and_train_loss(train_losses, train_dcs, val_losses, val_dcs)
 
-    model_pth = current_dir.parent / "my_checkpoint.pth"
+    model_pth = current_dir.parent / "checkpoints" / "my_checkpoint.pth"
     trained_model = UNet(in_channels=1, num_classes=1).to(device)
     trained_model.load_state_dict(torch.load(model_pth, map_location=torch.device(device),weights_only=True))
 
