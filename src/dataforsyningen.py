@@ -5,7 +5,6 @@ import requests
 from dotenv import load_dotenv
 import os
 import numpy as np
-from helpers import make_folders
 from tqdm import tqdm
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -36,32 +35,31 @@ class Dataforsyningen:
         self.session.mount('https://', adapter)
 
     def get_data(self, output_path: Path):
-        make_folders(output_path, "HR")
-
-        cop_chunks = self.read_copernicus(output_path)
+        Path.mkdir(output_path, exist_ok=True)
+        
+        cop_path = str(output_path).replace("dataforsyningen", "copernicus")
+        cop_chunks = self.read_copernicus(cop_path)
         self.get_dataforsyningen(cop_chunks, output_path)
 
     def read_copernicus(self, file_path: str | Path) -> tuple[xr.DataArray, tuple[int, int]]:
         chunks = []
         
-        for division in ["train", "val", "test"]:
-            for f in list(Path(file_path / division / "LR").glob("*.tif")):
-                with rioxarray.open_rasterio(f) as raw_data:
-                    data = raw_data.squeeze().drop_vars("band").load()
-                    self.data_division_dict[id(data)] = division
-                    chunks.append(data)
+        for f in list(Path(file_path).glob("*.tif")):
+            with rioxarray.open_rasterio(f) as raw_data:
+                data = raw_data.squeeze().drop_vars("band").load()
+                chunks.append(data)
 
         self.upscale_factor = round(chunks[0].rio.resolution()[0] / self.meters_per_pixel)
 
         return chunks
 
 
-    def get_dataforsyningen(self, lr_data: xr.DataArray, output_path: Path):
+    def get_dataforsyningen(self, dataforsyningen_data: xr.DataArray, output_path: Path):
         datatoken = os.getenv("DATATOKEN")
 
-        for data in tqdm(lr_data, desc="Fetching Dataforsyningen Data"):
+        for data in tqdm(dataforsyningen_data, desc="Fetching Dataforsyningen Data"):
             x_min, y_min, x_max, y_max = data.rio.bounds()
-            out_file = output_path / self.data_division_dict[id(data)] / "HR" / f"dataforsyningen_{x_min:.0f}_{y_min:.0f}.tif"
+            out_file = output_path / f"dataforsyningen_{x_min:.0f}_{y_min:.0f}.tif"
 
             if out_file.exists():
                 continue
@@ -86,12 +84,16 @@ class Dataforsyningen:
             with open(str(out_file), "wb") as f:
                 f.write(response.content)
 
-def main():
-    current_dir = Path(__file__).parent
-    output_path = current_dir.parent / "data"
-    dem_resolution = 10
-    dataforsyningen = Dataforsyningen(target_resolution=dem_resolution)
-    dataforsyningen.get_data(output_path)
 
-if __name__ == "__main__":
-    main()
+
+# outdated usage of the class
+#
+# def main():
+#     current_dir = Path(__file__).parent
+#     output_path = current_dir.parent / "data"
+#     dem_resolution = 10
+#     dataforsyningen = Dataforsyningen(target_resolution=dem_resolution)
+#     dataforsyningen.get_data(output_path)
+
+# if __name__ == "__main__":
+#     main()
