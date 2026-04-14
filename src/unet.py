@@ -1,20 +1,17 @@
-from importlib.resources import path
 import os
-
-from param import output
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from contextlib import nullcontext
 from PIL import Image
 from torch import optim
-from torch.cuda.amp import GradScaler
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 from torchvision import transforms
 from tqdm import tqdm
 from pathlib import Path
 from unet_helper import UNet
+from data_distributor import DataPair, get_base_dataset
 
 def diff_in_height_coefficient(prediction, target) :
         """Returns: Difference as tensor.
@@ -54,75 +51,31 @@ class SmoothGradLoss(nn.Module):
         grad_loss = self.grad(pred_dx, tgt_dx) + self.grad(pred_dy, tgt_dy)
         return pixel_loss + self.lambda_grad * grad_loss
 
-class SegmentationFolderDataset(Dataset):
-    def __init__(
-        self,
-        split_dir,
-        LR_subdir="LR",
-        HR_subdir="HR",
-        LR_transform=None,
-        HR_transform=None,
-        lr_resize_to=None,
-        hr_resize_to=None,
-    ):
-        """Returns: Self. Initializes the dataset for paired LR and HR images for super-resolution training.
-        Args:
-            split_dir: Directory containing the LR and HR subdirectories with the image files.
-            LR_subdir: Subdirectory name for low-resolution images.
-            HR_subdir: Subdirectory name for high-resolution images.
-            LR_transform: (Optional) torchvision transforms to apply to LR images.
-            HR_transform: (Optional) torchvision transforms to apply to HR images.
-            lr_resize_to: (Optional) (height, width) to resize LR images to. If None, no resizing is done.
-            hr_resize_to: (Optional) (height, width) to resize HR images to. If None, no resizing is done.
-        """
-        self.LR_dir = Path(split_dir) / LR_subdir #Finding data files
-        self.HR_dir = Path(split_dir) / HR_subdir
-        self.LR_files = sorted(self.LR_dir.glob("*"))  # PNG/TIF/JPG etc.
+class DatasetInterface(Dataset):
+    def __init__(self,
+                 data_pairs: list[DataPair],
+                 lr_target_size: tuple[int, int] = (128, 128)):
+        self.lr_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize(lr_target_size)
+        ])
+        self.hr_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((lr_target_size[0] * 3, lr_target_size[1] * 3))
+        ])
 
-        #Defining transformations for the data, if not provided
-        if LR_transform is None: 
-            lr_ops = []
-            if lr_resize_to is not None:
-                lr_ops.append(transforms.Resize(lr_resize_to, antialias=True)) #Resize (optional)
-            lr_ops.append(transforms.ToTensor())
-            LR_transform = transforms.Compose(lr_ops)
-        if HR_transform is None:
-            hr_ops = []
-            if hr_resize_to is not None:
-                hr_ops.append(transforms.Resize(hr_resize_to, antialias=True))
-            hr_ops.append(transforms.ToTensor())
-            HR_transform = transforms.Compose(hr_ops)
-
-        self.LR_transform = LR_transform
-        self.HR_transform = HR_transform
-
-        if not self.LR_dir.exists():
-            raise FileNotFoundError(f"LR directory does not exist: {self.LR_dir}")
-        if not self.HR_dir.exists():
-            raise FileNotFoundError(f"HR directory does not exist: {self.HR_dir}")
+        self.lr = []
+        self.hr = []
+        for pair in data_pairs:
+            self.lr.append(Image.open(pair.lr))
+            self.hr.append(Image.open(pair.hr))
 
     def __len__(self):
-        # Len override. size of LR dataset
-        return len(self.LR_files)
+        return len(self.lr)
 
-    def __getitem__(self, idx):
-        # Getitem override. for a given LR image index, find the corresponding HR image, apply transformations,
-        # and return both as tensors
-        LR_path = self.LR_files[idx]
-        HR_name = LR_path.name.replace("copernicus_", "dataforsyningen_", 1)
-        HR_path = self.HR_dir / HR_name
-
-        if not HR_path.exists():
-            raise FileNotFoundError(
-                f"Missing HR file for LR '{LR_path.name}'. Expected: '{HR_name}' in '{self.HR_dir}'."
-            )
-
-        LR = Image.open(LR_path)
-        HR = Image.open(HR_path)
-        LR = self.LR_transform(LR).float()
-        HR = self.HR_transform(HR).float()
-        return LR, HR
-
+    def __getitem__(self, idx: int):
+        return  self.lr_transform(self.lr[idx]).float(), \
+                self.hr_transform(self.hr[idx]).float()
 
 class Trainer:
     def __init__(
@@ -664,22 +617,12 @@ class Tester:
 def main():
     current_dir = Path(__file__).parent
     data_root = current_dir.parent / "data"  # Contains train/, val/, test/
-
-    basesize = 128
-    LR_RESIZE_TO = None
-    HR_RESIZE_TO = None
-    LR_RESIZE_TO = (basesize, basesize)
-    HR_RESIZE_TO = (basesize*3, basesize*3)
-    train_dataset = SegmentationFolderDataset(
-        data_root / "train", lr_resize_to=LR_RESIZE_TO, hr_resize_to=HR_RESIZE_TO
+    regions = ["jutland", "funen"]
+    data = get_base_dataset(
+        lr_data_dir_list=[data_root / "copernicus" / region for region in regions],
+        hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
     )
-    val_dataset   = SegmentationFolderDataset(
-        data_root / "val", lr_resize_to=LR_RESIZE_TO, hr_resize_to=HR_RESIZE_TO
-    )
-    test_dataset  = SegmentationFolderDataset(
-        data_root / "test", lr_resize_to=LR_RESIZE_TO, hr_resize_to=HR_RESIZE_TO
-    )
-
+    
     LEARNING_RATE = 2e-4
     BATCH_SIZE = 3
     NORMALIZE_TARGETS = True
@@ -699,9 +642,13 @@ def main():
         learning_rate=LEARNING_RATE,
         normalize_targets=NORMALIZE_TARGETS,
     )
-    #flattens out at about 38 epochs
+
+    # flattens out at about 38 epochs
     train_losses, train_dcs, val_losses, val_dcs = \
-        trainer.train(train_dataset, val_dataset, test_dataset, num_epochs=2, batch_size=BATCH_SIZE) 
+        trainer.train(DatasetInterface(data.train), 
+                      DatasetInterface(data.val), 
+                      DatasetInterface(data.test), 
+                      num_epochs=38, batch_size=BATCH_SIZE) 
     
     print(f"Training complete. \n Final training loss and dc: {train_losses[-1]:.4f}, {train_dcs[-1]:.4f}")
     print(f"Validation loss and dc: {val_losses[-1]:.4f}, {val_dcs[-1]:.4f}")
