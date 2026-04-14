@@ -12,9 +12,28 @@ class DataPair:
 
 @dataclass
 class DataSplits:
+    """Container for training, validation, and test splits of the dataset.
+
+    DataPair objects contain lr and hr file paths.
+    
+    Attributes
+    ---------
+        train : list[DataPair]
+            Data for training.
+        val : list[DataPair]
+            Data for validation.
+        test : list[DataPair]
+            Data for testing.
+        dataset : list[DataPair]
+            The entire dataset (sum of all splits).
+    """
     train: list[DataPair]
     val: list[DataPair]
     test: list[DataPair]
+    
+    @property
+    def dataset(self):
+        return self.train + self.val + self.test
 
 def _pair_files(lr_data_dir_list: list[Path],
                 hr_data_dir_list: list[Path]) -> list[DataPair]:
@@ -66,4 +85,4 @@ if __name__ == "__main__":
     division = DataDivision(train=0.8, val=0.1, test=0.1)
     data_splits = get_base_dataset(lr_dirs, hr_dirs, division=division)
 
-    print(f"Train: {len(data_splits.train)} pairs, Val: {len(data_splits.val)} pairs, Test: {len(data_splits.test)} pairs")
+    print(f"Train: {len(data_splits.train)} pairs, Val: {len(data_splits.val)} pairs, Test: {len(data_splits.test)} pairs, Total: {len(data_splits.dataset)} pairs")
