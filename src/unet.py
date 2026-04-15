@@ -615,7 +615,7 @@ class Tester:
 
 
 def main():
-    current_dir = Path(__file__).parent
+    current_dir = Path(__file__).resolve().parent
     data_root = current_dir.parent / "data"  # Contains train/, val/, test/
     regions = ["jutland", "funen"]
     data = get_base_dataset(

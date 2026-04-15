@@ -90,7 +90,7 @@ class Dataforsyningen:
 # outdated usage of the class
 #
 # def main():
-#     current_dir = Path(__file__).parent
+#     current_dir = Path(__file__).resolve().parent
 #     output_path = current_dir.parent / "data"
 #     dem_resolution = 10
 #     dataforsyningen = Dataforsyningen(target_resolution=dem_resolution)

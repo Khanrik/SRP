@@ -3,7 +3,7 @@ import shutil
 
 def main():
     """Migrates data from with_fyn folder to dataforsyningen and copernicus folders divided by region"""
-    data_dir = Path(__file__).parent.parent / "data" 
+    data_dir = Path(__file__).resolve().parent.parent / "data" 
 
     # removes duplicate data from no_fyn
     no_fyn = data_dir / "no_fyn"

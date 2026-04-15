@@ -4,7 +4,7 @@ from pathlib import Path
 from helpers import DataDivision
 from random import Random
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 @dataclass
 class DataPair:

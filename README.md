@@ -4,7 +4,7 @@ Super Resolution Project
 ## Installation
 
 ### Python
-Ideally you should use Python 3.10 or later, but `__future__` imports have been added to support at least Python 3.9 as well.
+Ideally you should use Python 3.10 or later, but `__future__` imports have been added to support at least Python 3.8.10 as well.
 
 Install all packages (except PyTorch) using pip and `requirements.txt` using this command:
 ```

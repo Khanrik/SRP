@@ -52,7 +52,7 @@ def get_denmark_data(output_path: Path,
         dataforsyningen.get_data(output_path / "dataforsyningen" / region_name)
 
 def main():
-    data_dir = Path(__file__).parent.parent / "data"
+    data_dir = Path(__file__).resolve().parent.parent / "data"
     lr_target_resolution = (128, 128)
     hr_target_resolution = 10
     

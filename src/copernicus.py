@@ -165,7 +165,7 @@ class Copernicus:
 #     resolution = (512, 512)
 #     chunks, merged_data = copernicus.get_data(target_resolution=resolution)
 
-#     current_dir = Path(__file__).parent
+#     current_dir = Path(__file__).resolve().parent
 #     output_path = current_dir.parent / "data"
 #     data_division = DataDivision(train=0.8, val=0.1, test=0.1)
 #     copernicus.write(chunks, output_path, data_division)
