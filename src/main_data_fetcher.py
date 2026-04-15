@@ -1,3 +1,4 @@
+from __future__ import annotations
 from helpers import BoundingBoxDegree
 from dataforsyningen import Dataforsyningen
 from dataclasses import dataclass

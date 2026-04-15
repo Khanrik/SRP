@@ -1,3 +1,4 @@
+from __future__ import annotations
 import rioxarray
 import xarray as xr
 from pathlib import Path
@@ -35,7 +36,7 @@ class Dataforsyningen:
         self.session.mount('https://', adapter)
 
     def get_data(self, output_path: Path):
-        Path.mkdir(output_path, exist_ok=True)
+        output_path.mkdir(parents=True, exist_ok=True)
         
         cop_path = str(output_path).replace("dataforsyningen", "copernicus")
         cop_chunks = self.read_copernicus(cop_path)
