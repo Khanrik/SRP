@@ -43,11 +43,15 @@ class Trainer:
         self.device = device
         self.cuda = device == "cuda"
         self.num_workers = 0
-        self.scaler = torch.amp.GradScaler('cuda', enabled=self.cuda)
         self.max_pixels_per_image = max_pixels_per_image
         self.profile_layers_once = profile_layers_once
         self.normalize_targets = normalize_targets
         self.target_norm_eps = target_norm_eps
+        # 
+        try:
+            self.scaler = torch.amp.GradScaler(device="cuda", enabled=self.cuda)
+        except (AttributeError, TypeError):
+            self.scaler = torch.cuda.amp.GradScaler(enabled=self.cuda)
 
     def train(self, 
               train_dataset: DatasetInterface, 
