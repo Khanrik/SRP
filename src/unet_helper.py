@@ -24,7 +24,7 @@ import numpy as np
 from rasterio.enums import Resampling
 from data_distributor import DataPair
 from contextlib import nullcontext
-
+from datetime import datetime
 
 # model
 class SmoothGradLoss(nn.Module):
@@ -149,7 +149,7 @@ class UNet(nn.Module):
 
 # data and metrics
 class plotter:
-    def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs):
+    def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs, display_plots=False):
         """Returns: Self.
         Args:
             train_losses: List of training losses per epoch.
@@ -197,10 +197,11 @@ class plotter:
         plt.legend()
 
         plt.tight_layout()
-        plt.savefig('train_val_metrics.png')
-        #plt.show()
+        plt.savefig(f'train_val_metrics_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png')
+        if display_plots:
+            plt.show()
 
-    def plot_training_images(self, LR, HR, prediction, train_loss, train_mae, train_rmse, train_psnr):
+    def plot_training_images(self, LR, HR, prediction, train_loss, train_mae, train_rmse, train_psnr, display_images=False):
         """Returns: Self.
         Args:
             LR: Low-resolution input image tensor.
@@ -250,8 +251,9 @@ class plotter:
 
         plt.suptitle(f"Train Loss: {sum(train_loss):.4f}, Train MAE: {sum(train_mae):.4f}, Train RMSE: {sum(train_rmse):.4f}, Train PSNR: {sum(train_psnr):.4f}")
         plt.tight_layout()
-        plt.savefig('training_images.png')
-        #plt.show()
+        plt.savefig(f'training_images_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png')
+        if display_images:
+            plt.show()
 
 class DatasetInterface(Dataset):
     def __init__(self,
