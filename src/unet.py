@@ -242,7 +242,7 @@ def main():
     
     LEARNING_RATE = 2e-4
     BATCH_SIZE = 3
-    EPOCHS = 2
+    EPOCHS = 32
     NORMALIZE_TARGETS = True
     PROFILE_LAYERS_ONCE = False
 
