@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import List
 import pystac
 import pystac_client
@@ -7,7 +8,7 @@ import xarray as xr
 from planetary_computer import sign
 from pathlib import Path
 import numpy as np
-from helpers import BoundingBoxDegree, BoundingBoxMeter, DataDivision, make_folders
+from helpers import BoundingBoxDegree, BoundingBoxMeter
 from pyproj import Transformer
 from tqdm import tqdm
 
@@ -127,28 +128,12 @@ class Copernicus:
         return chunks
 
 
-    def write(self, data: List[xr.DataArray], output_path: Path, data_division: DataDivision):
-        """Writes the divided data to files according to the specified data division."""
-        if data_division.no_division:
-            output_path.mkdir(parents=True, exist_ok=True)
-        else:
-            make_folders(output_path, "LR")
+    def write(self, data: List[xr.DataArray], output_path: Path):
+        """Writes the divided data to separate files."""
+        output_path.mkdir(parents=True, exist_ok=True)
 
-        N = len(data)
-        train_end = round(N * data_division.train) - 1
-        val_end = train_end + 1 + round(N * data_division.val) - 1
-
-        for i, chunk in enumerate(tqdm(data, desc="Writing chunks")):
-            if data_division.no_division:
-                split = ""
-            elif i <= train_end:
-                split = "train/LR"
-            elif i <= val_end:
-                split = "val/LR"
-            else:
-                split = "test/LR"
-
-            out_file = output_path / split / f"copernicus_{chunk.rio.bounds()[0]:.0f}_{chunk.rio.bounds()[1]:.0f}.tif"
+        for chunk in tqdm(data, desc="Writing chunks"):
+            out_file = output_path / f"copernicus_{chunk.rio.bounds()[0]:.0f}_{chunk.rio.bounds()[1]:.0f}.tif"
 
             if out_file.exists():
                 continue
@@ -157,7 +142,7 @@ class Copernicus:
 
 
     def write_merge(self, data: xr.DataArray, output_path: Path, filename: str):
-        """Writes the merged data to a single file. Used for testing and debugging."""
+        """Writes the merged data to a single file."""
         output_path.mkdir(parents=True, exist_ok=True)
 
         out_file = output_path / filename
@@ -168,26 +153,29 @@ class Copernicus:
         data.rio.to_raster(out_file)
 
 
-def main():
-    print("Downloading and processing Copernicus DEM data...")
+
+# outdated usage of the class
+#
+# def main():
+#     print("Downloading and processing Copernicus DEM data...")
     
-    midtjylland = BoundingBoxDegree(lon_min=9.0, lat_min=55.000277777777775, lon_max=9.999583333333334, lat_max=57.0)
-    copernicus = Copernicus(aoi=midtjylland)
+#     midtjylland = BoundingBoxDegree(lon_min=9.0, lat_min=55.000277777777775, lon_max=9.999583333333334, lat_max=57.0)
+#     copernicus = Copernicus(aoi=midtjylland)
     
-    resolution = (512, 512)
-    chunks, merged_data = copernicus.get_data(target_resolution=resolution)
+#     resolution = (512, 512)
+#     chunks, merged_data = copernicus.get_data(target_resolution=resolution)
 
-    current_dir = Path(__file__).parent
-    output_path = current_dir.parent / "data"
-    data_division = DataDivision(train=0.8, val=0.1, test=0.1)
-    copernicus.write(chunks, output_path, data_division)
-    #copernicus.write_merge(merged_data, output_path, "copernicus_merged.tif")
+#     current_dir = Path(__file__).resolve().parent
+#     output_path = current_dir.parent / "data"
+#     data_division = DataDivision(train=0.8, val=0.1, test=0.1)
+#     copernicus.write(chunks, output_path, data_division)
+#     #copernicus.write_merge(merged_data, output_path, "copernicus_merged.tif")
 
-    print("Done.")
+#     print("Done.")
 
-    copernicus = Copernicus(target_resolution=resolution)
-    copernicus.get_data(output_path)
+#     copernicus = Copernicus(target_resolution=resolution)
+#     copernicus.get_data(output_path)
     
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
