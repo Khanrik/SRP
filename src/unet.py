@@ -54,7 +54,8 @@ class Trainer:
     def _run_loop(self,
                    dataloader: DataLoader,
                    training_state: Literal["train", "val", "test"],
-                   epoch: int):
+                   epoch: int,
+                   use_amp: bool):
         running = {
             "Loss": [],
             "MAE": [],
@@ -77,15 +78,15 @@ class Trainer:
             # If cuda is false, this will just be a nullcontext and have no effect.
             autocast_ctx = (
                 torch.autocast(device_type=self.device, dtype=torch.float16)
-                if self.cuda 
+                if use_amp
                 else nullcontext()
             )
 
             try:
                 with autocast_ctx:
                     # Forward pass through the model to get predictions, and calculating the loss with the criterion.
-                    y_pred = self.model(LR)
                     validate_batch_shapes(LR, HR_for_loss, y_pred, self.max_pixels_per_image)
+                    y_pred = self.model(LR)
                     loss = self.criterion(y_pred, HR_for_loss)
             except RuntimeError as err:
                 if "not enough memory" in str(err).lower():
@@ -181,7 +182,7 @@ class Trainer:
 
         for epoch in tqdm(range(num_epochs)):
             self.model.train()
-            train_loss, train_mae, train_rmse, train_psnr = self._run_loop(self.train_dataloader, training_state="train", epoch=epoch)
+            train_loss, train_mae, train_rmse, train_psnr = self._run_loop(self.train_dataloader, training_state="train", epoch=epoch, use_amp=self.cuda)
 
             train_losses.append(train_loss)
             train_maes.append(train_mae)
@@ -192,7 +193,7 @@ class Trainer:
             self.model.eval()
             self.profile_layers_once = False  # profile layers is only relevant for training
             with torch.no_grad():
-                val_loss, val_mae, val_rmse, val_psnr = self._run_loop(self.val_dataloader, training_state="val", epoch=epoch)
+                val_loss, val_mae, val_rmse, val_psnr = self._run_loop(self.val_dataloader, training_state="val", epoch=epoch, use_amp=self.cuda)
 
             val_losses.append(val_loss)
             val_maes.append(val_mae)
@@ -221,7 +222,8 @@ class Trainer:
         """Returns: test loss and difference coefficient for the test dataset.
         """
         self.model.eval()
-        test_loss, test_mae, test_rmse, test_psnr = self._run_loop(self.test_dataloader, training_state="test", epoch=0)
+        with torch.no_grad():
+            test_loss, test_mae, test_rmse, test_psnr = self._run_loop(self.test_dataloader, training_state="test", epoch=0, use_amp=False)
 
         print(f"Test Loss: {test_loss:.4f}")
         print(f"Test MAE: {test_mae:.4f}")
