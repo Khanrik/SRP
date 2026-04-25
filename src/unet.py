@@ -8,6 +8,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from pathlib import Path
 from unet_helper import *
+from helpers import *
+from plotter import plotter
 from data_distributor import get_base_dataset
 from typing import Literal
 
@@ -62,7 +64,6 @@ class Trainer:
             "RMSE": [],
             "PSNR": []
         }
-        first_prediction = None
 
         for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True)):
             # creating LR and HR tensors for the batch and moving them to the correct device.
@@ -117,7 +118,6 @@ class Trainer:
 
             if idx == 0:
                 if training_state == "test":
-                    first_prediction = y_pred_eval.cpu().detach().numpy()
                     plotter().plot_training_images(LR, HR, y_pred_eval, running["Loss"], running["MAE"], running["RMSE"], running["PSNR"])
                 else:
                     log_shape_and_memory(training_state, epoch, idx, LR, HR, y_pred_eval, self.cuda)
