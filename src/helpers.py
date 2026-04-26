@@ -1,15 +1,21 @@
+from __future__ import annotations
+
 import copy
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import torch.nn as nn
+from contextlib import nullcontext
 
 from dataclasses import dataclass
 from torchvision import transforms
 from PIL import Image
 from torch.utils.data.dataset import Dataset
-from data_distributor import DataPair
 from torch.utils.data import DataLoader
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from data_distributor import DataPair
 
 @dataclass
 class results:

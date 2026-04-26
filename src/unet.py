@@ -11,7 +11,7 @@ from unet_helper import *
 from helpers import *
 from plotter import plotter
 from data_distributor import get_base_dataset
-from typing import Literal
+from typing import Literal, Union
 
 class Trainer:
     def __init__(
@@ -25,6 +25,9 @@ class Trainer:
         profile_layers_once: bool = True,
         normalize_targets: bool = False,
         target_norm_eps: float = 1e-6,
+        save_plots: bool = True,
+        show_plots: bool = False,
+        plots_dir: Union[str, Path] = "checkpoints/plots",
     ):
         """ Returns: Self. Initializes the Trainer with the model, optimizer, loss function, device, and learning rate.
         Args:
@@ -46,6 +49,11 @@ class Trainer:
         self.profile_layers_once = profile_layers_once
         self.normalize_targets = normalize_targets
         self.target_norm_eps = target_norm_eps
+        self.save_plots = save_plots
+        self.show_plots = show_plots
+        self.plots_dir = Path(plots_dir)
+        self.plots_dir.mkdir(parents=True, exist_ok=True)
+        self.plotter = plotter()
 
         # this enables compatibility for older python 3.8.10 i think or maybe linux
         try:
@@ -86,8 +94,8 @@ class Trainer:
             try:
                 with autocast_ctx:
                     # Forward pass through the model to get predictions, and calculating the loss with the criterion.
-                    validate_batch_shapes(LR, HR_for_loss, y_pred, self.max_pixels_per_image)
                     y_pred = self.model(LR)
+                    validate_batch_shapes(LR, HR_for_loss, y_pred, self.max_pixels_per_image)
                     loss = self.criterion(y_pred, HR_for_loss)
             except RuntimeError as err:
                 if "not enough memory" in str(err).lower():
@@ -118,7 +126,49 @@ class Trainer:
 
             if idx == 0:
                 if training_state == "test":
-                    plotter().plot_training_images(LR, HR, y_pred_eval, running["Loss"], running["MAE"], running["RMSE"], running["PSNR"])
+                    if self.save_plots:
+                        lr_up = torch.nn.functional.interpolate(
+                            LR,
+                            size=HR.shape[-2:],
+                            mode="bilinear",
+                            align_corners=False,
+                        )
+
+                        lr_mse = mean_squared_error(lr_up.float(), HR)
+                        pred_mse = mean_squared_error(y_pred_eval.float(), HR)
+                        hr_mse = mean_squared_error(HR.float(), HR)
+
+                        horizontal_results = [
+                            results(
+                                MSE=lr_mse,
+                                MAE=mean_absolute_error(lr_up.float(), HR),
+                                RMSE=root_mean_squared_error(lr_up.float(), HR, lr_mse),
+                                PSNR=peak_signal_to_noise_ratio(lr_up.float(), HR, self.max_pixel_value, lr_mse),
+                                image=lr_up[0],
+                                name="bilinear",
+                            ),
+                            results(
+                                MSE=pred_mse,
+                                MAE=mean_absolute_error(y_pred_eval.float(), HR),
+                                RMSE=root_mean_squared_error(y_pred_eval.float(), HR, pred_mse),
+                                PSNR=peak_signal_to_noise_ratio(y_pred_eval.float(), HR, self.max_pixel_value, pred_mse),
+                                image=y_pred_eval[0],
+                                name="Prediction",
+                            ),
+                            results(
+                                MSE=hr_mse,
+                                MAE=mean_absolute_error(HR.float(), HR),
+                                RMSE=root_mean_squared_error(HR.float(), HR, hr_mse),
+                                PSNR=peak_signal_to_noise_ratio(HR.float(), HR, self.max_pixel_value, hr_mse),
+                                image=HR[0],
+                                name="GT",
+                            ),
+                        ]
+
+                        self.plotter.plot_horizontal_results(
+                            horizontal_results,
+                            save_path=self.plots_dir / f"test_horizontal_results_epoch_{epoch + 1}.png",
+                        )
                 else:
                     log_shape_and_memory(training_state, epoch, idx, LR, HR, y_pred_eval, self.cuda)
 
@@ -244,9 +294,11 @@ def main():
     
     LEARNING_RATE = 2e-4
     BATCH_SIZE = 3
-    EPOCHS = 32
+    EPOCHS = 38
     NORMALIZE_TARGETS = True
     PROFILE_LAYERS_ONCE = False
+    SAVE_PLOTS = True
+    SHOW_PLOTS = False
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cuda":
@@ -263,7 +315,10 @@ def main():
         device,
         learning_rate=LEARNING_RATE,
         normalize_targets=NORMALIZE_TARGETS,
-        profile_layers_once=PROFILE_LAYERS_ONCE
+        profile_layers_once=PROFILE_LAYERS_ONCE,
+        save_plots=SAVE_PLOTS,
+        show_plots=SHOW_PLOTS,
+        plots_dir=current_dir.parent / "checkpoints" / "plots",
     )
 
     trainer.prepare_data(DatasetInterface(data.train), 

@@ -1,5 +1,5 @@
 
-import datetime
+import time
 from helpers import results
 import matplotlib.pyplot as plt
 import torch
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 # data and metrics
 class plotter:
-    def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs, display_plots=False):
+    def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs, save_path=None, display_plots=False):
         """Returns: Self.
         Args:
             train_losses: List of training losses per epoch.
@@ -58,11 +58,11 @@ class plotter:
         plt.legend()
 
         plt.tight_layout()
-        plt.savefig(f'train_val_metrics_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png')
+        plt.savefig(f'train_val_metrics_{time.strftime("%Y-%m-%d_%H-%M-%S")}.png')
         if display_plots:
             plt.show()
 
-    def _to_plot_array(tensor):
+    def _to_plot_array(self,tensor):
             # Handling the batch dimension and channel dimension for plotting.
             tensor = tensor.detach().cpu()
             if tensor.ndim == 4:
@@ -115,7 +115,7 @@ class plotter:
 
         plt.suptitle(f"Train Loss: {sum(train_loss):.4f}, Train MAE: {sum(train_mae):.4f}, Train RMSE: {sum(train_rmse):.4f}, Train PSNR: {sum(train_psnr):.4f}")
         plt.tight_layout()
-        plt.savefig(f'training_images_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.png')
+        plt.savefig(f'training_images_{time.strftime("%Y-%m-%d_%H-%M-%S")}.png')
         if display_images:
             plt.show()
 
