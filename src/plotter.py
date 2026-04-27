@@ -1,4 +1,5 @@
 
+import os
 import time
 from helpers import results
 import matplotlib.pyplot as plt
@@ -6,10 +7,17 @@ import torch
 import numpy as np
 from matplotlib.gridspec import GridSpec
 from dataclasses import dataclass
+from pathlib import Path
 
 
 # data and metrics
 class plotter:
+    def __init__(self, save_dir="plots",show_plots=False,save_plots=False):
+        self.save_dir = Path(save_dir)
+        self.show_plots = show_plots
+        self.save_plots = save_plots
+        self.save_dir.mkdir(parents=True, exist_ok=True)
+
     def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs, save_path=None, display_plots=False):
         """Returns: Self.
         Args:
@@ -21,46 +29,52 @@ class plotter:
             val_maes: List of validation MAEs per epoch.
             val_rmses: List of validation RMSEs per epoch.
             val_psnrs: List of validation PSNRs per epoch.
+            save_path: Optional path to save the plot image.
+            display_plots: Whether to display the plots interactively.
         """
-        epochs = range(1, len(train_losses) + 1)
+        if self.save_plots or self.show_plots:
+            epochs = range(1, len(train_losses) + 1)
 
-        plt.figure(figsize=(12, 8))
-        plt.subplot(2, 2, 1)
-        plt.plot(epochs, train_losses, label='Train Loss')
-        plt.plot(epochs, val_losses, label='Val Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.title('Training and Validation Loss')
-        plt.legend()
+            plt.figure(figsize=(12, 8))
+            plt.subplot(2, 2, 1)
+            plt.plot(epochs, train_losses, label='Train Loss')
+            plt.plot(epochs, val_losses, label='Val Loss')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.title('Training and Validation Loss')
+            plt.legend()
 
-        plt.subplot(2, 2, 2)
-        plt.plot(epochs, train_maes, label='Train MAE')
-        plt.plot(epochs, val_maes, label='Val MAE')
-        plt.xlabel('Epoch')
-        plt.ylabel('Mean Absolute Error')
-        plt.title('Training and Validation MAE')
-        plt.legend()
+            plt.subplot(2, 2, 2)
+            plt.plot(epochs, train_maes, label='Train MAE')
+            plt.plot(epochs, val_maes, label='Val MAE')
+            plt.xlabel('Epoch')
+            plt.ylabel('Mean Absolute Error')
+            plt.title('Training and Validation MAE')
+            plt.legend()
 
-        plt.subplot(2, 2, 3)
-        plt.plot(epochs, train_rmses, label='Train RMSE')
-        plt.plot(epochs, val_rmses, label='Val RMSE')
-        plt.xlabel('Epoch')
-        plt.ylabel('Root Mean Squared Error')
-        plt.title('Training and Validation RMSE')
-        plt.legend()
+            plt.subplot(2, 2, 3)
+            plt.plot(epochs, train_rmses, label='Train RMSE')
+            plt.plot(epochs, val_rmses, label='Val RMSE')
+            plt.xlabel('Epoch')
+            plt.ylabel('Root Mean Squared Error')
+            plt.title('Training and Validation RMSE')
+            plt.legend()
 
-        plt.subplot(2, 2, 4)
-        plt.plot(epochs, train_psnrs, label='Train PSNR')
-        plt.plot(epochs, val_psnrs, label='Val PSNR')
-        plt.xlabel('Epoch')
-        plt.ylabel('Peak Signal-to-Noise Ratio')
-        plt.title('Training and Validation PSNR')
-        plt.legend()
+            plt.subplot(2, 2, 4)
+            plt.plot(epochs, train_psnrs, label='Train PSNR')
+            plt.plot(epochs, val_psnrs, label='Val PSNR')
+            plt.xlabel('Epoch')
+            plt.ylabel('Peak Signal-to-Noise Ratio')
+            plt.title('Training and Validation PSNR')
+            plt.legend()
 
-        plt.tight_layout()
-        plt.savefig(f'train_val_metrics_{time.strftime("%Y-%m-%d_%H-%M-%S")}.png')
-        if display_plots:
-            plt.show()
+            plt.tight_layout()
+
+            if self.show_plots:
+                plt.show()
+
+            if self.save_plots and save_path:
+                plt.savefig(os.path.join(self.save_dir, f'training_validation_metrics_{time.strftime("%Y-%m-%d_%H-%M-%S")}.png'), dpi=300, bbox_inches="tight")
 
     def _to_plot_array(self,tensor):
             # Handling the batch dimension and channel dimension for plotting.
@@ -90,123 +104,124 @@ class plotter:
             train_rmse: Current training root mean squared error.
             train_psnr: Current training peak signal-to-noise ratio.
         """
-        difference_tensor = torch.abs(prediction - HR)
         
+        if self.save_plots or self.show_plots:
+            LR_img = self._to_plot_array(LR)
+            HR_img = self._to_plot_array(HR)
+            pred_img = self._to_plot_array(prediction)
 
-        LR_img = self._to_plot_array(LR)
-        HR_img = self._to_plot_array(HR)
-        pred_img = self._to_plot_array(prediction)
+            plt.figure(figsize=(15, 5))
+            plt.subplot(1, 3, 1)
+            plt.title('Low-Resolution Input')
+            plt.imshow(LR_img, cmap='gray' if LR_img.ndim == 2 else None)
+            plt.axis('off')
 
-        plt.figure(figsize=(15, 5))
-        plt.subplot(1, 3, 1)
-        plt.title('Low-Resolution Input')
-        plt.imshow(LR_img, cmap='gray' if LR_img.ndim == 2 else None)
-        plt.axis('off')
+            plt.subplot(1, 3, 2)
+            plt.title('High-Resolution Target')
+            plt.imshow(HR_img, cmap='gray' if HR_img.ndim == 2 else None)
+            plt.axis('off')
 
-        plt.subplot(1, 3, 2)
-        plt.title('High-Resolution Target')
-        plt.imshow(HR_img, cmap='gray' if HR_img.ndim == 2 else None)
-        plt.axis('off')
+            plt.subplot(1, 3, 3)
+            plt.title('Model Prediction')
+            plt.imshow(pred_img, cmap='gray' if pred_img.ndim == 2 else None)
+            plt.axis('off')
 
-        plt.subplot(1, 3, 3)
-        plt.title('Model Prediction')
-        plt.imshow(pred_img, cmap='gray' if pred_img.ndim == 2 else None)
-        plt.axis('off')
-
-        plt.suptitle(f"Train Loss: {sum(train_loss):.4f}, Train MAE: {sum(train_mae):.4f}, Train RMSE: {sum(train_rmse):.4f}, Train PSNR: {sum(train_psnr):.4f}")
-        plt.tight_layout()
-        plt.savefig(f'training_images_{time.strftime("%Y-%m-%d_%H-%M-%S")}.png')
-        if display_images:
-            plt.show()
+            plt.suptitle(f"Train Loss: {sum(train_loss):.4f}, Train MAE: {sum(train_mae):.4f}, Train RMSE: {sum(train_rmse):.4f}, Train PSNR: {sum(train_psnr):.4f}")
+            plt.tight_layout()
+            if self.save_plots: 
+                plt.savefig(os.path.join(self.save_dir, f'training_images_{time.strftime("%Y-%m-%d_%H-%M-%S")}.png'), dpi=300, bbox_inches="tight")
+            if self.show_plots:
+                plt.show()
 
 
-    def plot_horizontal_results(self, results_list, save_path=None):
+    def plot_horizontal_results(self, results_list):
         """Returns: Self.
         Args:
-            results: A list of results object containing lists of training and validation metrics per epoch.
+            results_list: A list of results object containing lists of training and validation metrics per epoch.
         """
+        if self.save_plots or self.show_plots:
+            n = len(results_list)
 
-        n = len(results_list)
+            fig = plt.figure(figsize=(4 * n, 6))
+            gs = GridSpec(
+                2, n,
+                height_ratios=[4, 1.8],
+                hspace=0.03,
+                wspace=0.05
+            )
 
-        fig = plt.figure(figsize=(4 * n, 6))
-        gs = GridSpec(
-            2, n,
-            height_ratios=[4, 1.8],
-            hspace=0.03,
-            wspace=0.05
-        )
+            # --------------------------------------------------------
+            # TOP ROW: IMAGES
+            # --------------------------------------------------------
+            for i, r in enumerate(results_list):
+                ax = fig.add_subplot(gs[0, i])
 
-        # --------------------------------------------------------
-        # TOP ROW: IMAGES
-        # --------------------------------------------------------
-        for i, r in enumerate(results_list):
-            ax = fig.add_subplot(gs[0, i])
+                img = r.image.detach().cpu()
 
-            img = r.image.detach().cpu()
+                # Handle CHW -> HWC
+                if img.ndim == 3:
+                    if img.shape[0] in [1, 3]:
+                        img = img.permute(1, 2, 0)
 
-            # Handle CHW -> HWC
-            if img.ndim == 3:
-                if img.shape[0] in [1, 3]:
-                    img = img.permute(1, 2, 0)
+                img = img.numpy()
 
-            img = img.numpy()
+                # grayscale squeeze
+                if img.shape[-1] == 1:
+                    img = img.squeeze(-1)
 
-            # grayscale squeeze
-            if img.shape[-1] == 1:
-                img = img.squeeze(-1)
+                ax.imshow(img, cmap="gray" if img.ndim == 2 else None)
+                ax.set_title(r.name, fontsize=12, pad=8)
+                ax.axis("off")
 
-            ax.imshow(img, cmap="gray" if img.ndim == 2 else None)
-            ax.set_title(r.name, fontsize=12, pad=8)
-            ax.axis("off")
+            # --------------------------------------------------------
+            # TABLE DATA
+            # --------------------------------------------------------
+            metric_names = ["MSE", "MAE", "RMSE", "PSNR"]
 
-        # --------------------------------------------------------
-        # TABLE DATA
-        # --------------------------------------------------------
-        metric_names = ["MSE", "MAE", "RMSE", "PSNR"]
+            cell_text = []
 
-        cell_text = []
+            for metric in metric_names:
+                row = []
+                for r in results_list:
+                    val = getattr(r, metric)
+                    row.append(f"{val:.4f}")
+                cell_text.append(row)
 
-        for metric in metric_names:
-            row = []
-            for r in results_list:
-                val = getattr(r, metric)
-                row.append(f"{val:.4f}")
-            cell_text.append(row)
+            col_labels = [r.name for r in results_list]
 
-        col_labels = [r.name for r in results_list]
+            # --------------------------------------------------------
+            # TABLE
+            # --------------------------------------------------------
+            ax_table = fig.add_subplot(gs[1, :])
+            ax_table.axis("off")
 
-        # --------------------------------------------------------
-        # TABLE
-        # --------------------------------------------------------
-        ax_table = fig.add_subplot(gs[1, :])
-        ax_table.axis("off")
+            table = ax_table.table(
+                cellText=cell_text,
+                rowLabels=metric_names,
+                colLabels=col_labels,
+                loc="center",
+                cellLoc="center",
+                rowLoc="center"
+            )
 
-        table = ax_table.table(
-            cellText=cell_text,
-            rowLabels=metric_names,
-            colLabels=col_labels,
-            loc="center",
-            cellLoc="center",
-            rowLoc="center"
-        )
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1.0, 1.6)
 
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1.0, 1.6)
+            # cleaner borders
+            for (row, col), cell in table.get_celld().items():
+                cell.set_linewidth(0.6)
 
-        # cleaner borders
-        for (row, col), cell in table.get_celld().items():
-            cell.set_linewidth(0.6)
+            # bold column headers
+            for col in range(n):
+                table[(0, col)].set_text_props(weight="bold")
 
-        # bold column headers
-        for col in range(n):
-            table[(0, col)].set_text_props(weight="bold")
+            plt.tight_layout()
 
-        plt.tight_layout()
+            if self.save_plots and self.save_dir:
+                plt.savefig(os.path.join(self.save_dir, f"horizontal_results_{time.strftime('%Y-%m-%d_%H-%M-%S')}.png"), dpi=300, bbox_inches="tight")
 
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches="tight")
-
-        plt.show()
+            if self.show_plots:
+                plt.show()
 
 
