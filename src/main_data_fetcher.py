@@ -6,7 +6,7 @@ from copernicus import Copernicus
 from pathlib import Path
 import xarray as xr
 import shutil
-
+import os
 @dataclass
 class cop_data_group:
     copernicus: Copernicus = None
@@ -58,6 +58,11 @@ def get_denmark_data(output_path: Path,
         dataforsyningen.get_data(output_path / "dataforsyningen" / region_name)
 
 def move_to_selected(output_path: Path):
+    lr_file_path = output_path / "selected" / "lr"
+    hr_file_path = output_path / "selected" / "hr"
+    lr_file_path.parent.mkdir(parents=True, exist_ok=True)
+    hr_file_path.parent.mkdir(parents=True, exist_ok=True)
+
     files_to_move = {
         "jutland": [
             "572995_6223578", # aarhus
@@ -81,18 +86,18 @@ def move_to_selected(output_path: Path):
         for coords in coords_list:
             lr_file = output_path / "copernicus" / region / f"copernicus_{coords}.tif"
             hr_file = output_path / "dataforsyningen" / region / f"dataforsyningen_{coords}.tif"
+            
             if not lr_file.exists() or not hr_file.exists():
                 print(f"Warning: Missing file for {region} with coords {coords}. LR exists: {lr_file.exists()}, HR exists: {hr_file.exists()}")
-                print(f"LR file path: {lr_file}, HR file path: {hr_file}")
                 continue
-            lr_file_path = output_path / "selected" / "lr" / lr_file.name
-            hr_file_path = output_path / "selected" / "hr" / hr_file.name
-            lr_file_path.parent.mkdir(parents=True, exist_ok=True)
-            hr_file_path.parent.mkdir(parents=True, exist_ok=True)
-            # TODO: FIX THIS
+            
             shutil.move(str(lr_file), str(lr_file_path))
-            shutil.
             shutil.move(str(hr_file), str(hr_file_path))
+
+            if lr_file.exists():
+                os.remove(lr_file)
+            if hr_file.exists():
+                os.remove(hr_file)
 
 def main():
     data_dir = Path(__file__).resolve().parent.parent / "data"
@@ -100,10 +105,10 @@ def main():
     hr_target_resolution = 10
     
     print("Downloading and processing Denmark data...")
-    # get_denmark_data(output_path=data_dir, 
-    #                  lr_target_resolution=lr_target_resolution, 
-    #                  hr_target_resolution=hr_target_resolution,
-    #                  include_merge=True)
+    get_denmark_data(output_path=data_dir, 
+                     lr_target_resolution=lr_target_resolution, 
+                     hr_target_resolution=hr_target_resolution,
+                     include_merge=True)
     
     print("Moving select files to 'selected' directory...")
     move_to_selected(output_path=data_dir)
