@@ -13,6 +13,7 @@ from PIL import Image
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import DataLoader
 from typing import TYPE_CHECKING
+from tqdm import tqdm
 
 if TYPE_CHECKING:
     from data_distributor import DataPair
@@ -80,7 +81,7 @@ class DatasetInterface(Dataset):
 
         self.lr = []
         self.hr = []
-        for pair in data_pairs:
+        for pair in tqdm(data_pairs, desc="Loading dataset"):
             self.lr.append(Image.open(pair.lr))
             self.hr.append(Image.open(pair.hr))
 
@@ -144,7 +145,7 @@ def peak_signal_to_noise_ratio(prediction, target, max_pixel_value, mse=None) ->
 def compute_max_pixel_value(dataset: DatasetInterface, batch_size: int) -> float:
     loader = DataLoader(dataset, batch_size=batch_size)
     max_pixel_value = float('-inf')
-    for _, hr in loader:
+    for _, hr in tqdm(loader, desc="Computing max pixel value"):
         max_pixel_value = max(max_pixel_value, hr.max().item())
     return max_pixel_value
 
@@ -166,7 +167,7 @@ def compute_target_norm_stats(dataset: DatasetInterface,
     total_sq_sum = 0.0
     total_count = 0
     with torch.no_grad():
-        for _, hr in stats_loader:
+        for _, hr in tqdm(stats_loader, desc="Computing normalization stats"):
             hr = hr.float()
             total_sum += hr.sum().item()
             total_sq_sum += (hr * hr).sum().item()
