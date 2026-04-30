@@ -13,6 +13,7 @@ from plotter import plotter
 from data_distributor import get_base_dataset
 from typing import Literal, Union
 import time
+from loss_functions import *
 
 
 class ModelPipeline:
@@ -221,6 +222,10 @@ class ModelPipeline:
                 print(f"Validation RMSE EPOCH {epoch + 1}: {val_rmse:.4f}")
                 print(f"Validation PSNR EPOCH {epoch + 1}: {val_psnr:.4f}")
                 print("-" * 30)
+                # stopping training if metrics are the same for 10 epochs in a row
+                if len(train_losses) > 10 and all(abs(train_losses[-i] - train_losses[-i-1]) < train_losses[-i]*0.5 for i in range(1, 10)):
+                    print(f"Training loss has not improved for 10 epochs. Stopping training at epoch {epoch + 1}.")
+                    break
 
             # Saving the model for the current run and timestamping it for archival purposes
             path = 'checkpoints'
@@ -386,7 +391,7 @@ def main():
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
-        "CRITERION": SmoothGradLoss(beta=1.0, lambda_grad=0.2),
+        "CRITERION": GradLoss(),
         "NORMALIZE_TARGETS": True
     }
     plotter_instance = plotter(save_dir=current_dir.parent / "checkpoints" / "plots", show_plots=True, save_plots=True)
@@ -404,10 +409,10 @@ def main():
                                model_config["BATCH_SIZE"])
 
     # flattens out at about 38 epochs
-    unet_pipeline.train(retrain=False)
+    unet_pipeline.train(retrain=True)
 
     unet_pipeline.test()
-    visualiser([unet_pipeline], plotter_instance, data.test[:3], model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
+    visualiser([unet_pipeline], plotter_instance, data.test[:4], model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
 
     print("finished main")
 

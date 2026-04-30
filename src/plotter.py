@@ -131,13 +131,14 @@ class plotter:
                 plt.show()
 
 
-    def plot_horizontal_results(self, results_list, interpolation="nearest"):
+    def plot_horizontal_results(self, results_list, interpolation="nearest", max_rows_per_figure=3):
         """Plot one sample or many samples in a single figure.
 
         Args:
             results_list: Either a flat list of results for one sample, or a nested
                 list where each inner list contains the results for one sample.
             interpolation: Matplotlib interpolation mode used for all images.
+            max_rows_per_figure: Maximum number of sample rows to render per figure.
         """
         if not (self.save_plots or self.show_plots):
             return
@@ -148,71 +149,75 @@ class plotter:
         is_nested = isinstance(results_list[0], list)
         sample_groups = results_list if is_nested else [results_list]
 
-        num_rows = len(sample_groups)
-        num_cols = len(sample_groups[0])
-
         for group in sample_groups:
-            if len(group) != num_cols:
+            if len(group) != len(sample_groups[0]):
                 raise ValueError("All result groups must contain the same number of entries.")
 
-        fig, axes = plt.subplots(
-            num_rows,
-            num_cols,
-            figsize=(4 * num_cols, 4 * num_rows),
-            squeeze=False,
-        )
-
+        num_cols = len(sample_groups[0])
         column_titles = [result.name for result in sample_groups[0]]
 
-        for row_idx, group in enumerate(sample_groups):
-            for col_idx, result in enumerate(group):
-                ax = axes[row_idx][col_idx]
+        pages = [sample_groups[start:start + max_rows_per_figure] for start in range(0, len(sample_groups), max_rows_per_figure)]
 
-                img = result.image.detach().cpu()
-                if img.ndim == 3:
-                    if img.shape[0] in [1, 3]:
-                        img = img.permute(1, 2, 0)
-
-                img = img.numpy()
-                if img.ndim == 3 and img.shape[-1] == 1:
-                    img = img.squeeze(-1)
-
-                self._imshow(ax, img, interpolation=interpolation)
-                if row_idx == 0:
-                    ax.set_title(column_titles[col_idx], fontsize=12, pad=8)
-                if col_idx == 0:
-                    ax.set_ylabel(f"Sample {row_idx + 1}", fontsize=11, rotation=0, labelpad=32, va="center")
-                ax.axis("off")
-
-                metrics_text = (
-                    f"MSE {result.MSE:.4f}\n"
-                    f"MAE {result.MAE:.4f}\n"
-                    f"RMSE {result.RMSE:.4f}\n"
-                    f"PSNR {result.PSNR:.4f}"
-                )
-                ax.text(
-                    0.5,
-                    -0.12,
-                    metrics_text,
-                    transform=ax.transAxes,
-                    ha="center",
-                    va="top",
-                    fontsize=8,
-                )
-
-        fig.tight_layout()
-
-        if self.save_plots and self.save_dir:
-            fig.savefig(
-                os.path.join(
-                    self.save_dir,
-                    f"horizontal_results_{time.strftime('%Y-%m-%d_%H-%M-%S')}.png",
-                ),
-                dpi=300,
-                bbox_inches="tight",
+        for page_idx, page_groups in enumerate(pages, start=1):
+            num_rows = len(page_groups)
+            fig, axes = plt.subplots(
+                num_rows,
+                num_cols,
+                figsize=(4 * num_cols, 3.6 * num_rows),
+                squeeze=False,
             )
 
-        if self.show_plots:
-            plt.show()
+            for row_idx, group in enumerate(page_groups):
+                for col_idx, result in enumerate(group):
+                    ax = axes[row_idx][col_idx]
+
+                    img = result.image.detach().cpu()
+                    if img.ndim == 3:
+                        if img.shape[0] in [1, 3]:
+                            img = img.permute(1, 2, 0)
+
+                    img = img.numpy()
+                    if img.ndim == 3 and img.shape[-1] == 1:
+                        img = img.squeeze(-1)
+
+                    self._imshow(ax, img, interpolation=interpolation)
+                    if row_idx == 0:
+                        ax.set_title(column_titles[col_idx], fontsize=12, pad=8)
+                    if col_idx == 0:
+                        sample_number = (page_idx - 1) * max_rows_per_figure + row_idx + 1
+                        ax.set_ylabel(f"Sample {sample_number}", fontsize=11, rotation=0, labelpad=32, va="center")
+                    ax.axis("off")
+
+                    metrics_text = (
+                        f"MSE {result.MSE:.4f}\n"
+                        f"MAE {result.MAE:.4f}\n"
+                        f"RMSE {result.RMSE:.4f}\n"
+                        f"PSNR {result.PSNR:.4f}"
+                    )
+                    ax.text(
+                        0.5,
+                        -0.12,
+                        metrics_text,
+                        transform=ax.transAxes,
+                        ha="center",
+                        va="top",
+                        fontsize=8,
+                    )
+
+            fig.suptitle(f"Horizontal Results Page {page_idx}/{len(pages)}", fontsize=13, y=0.995)
+            fig.tight_layout(rect=(0, 0, 1, 0.97))
+
+            if self.save_plots and self.save_dir:
+                fig.savefig(
+                    os.path.join(
+                        self.save_dir,
+                        f"horizontal_results_page{page_idx}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.png",
+                    ),
+                    dpi=300,
+                    bbox_inches="tight",
+                )
+
+            if self.show_plots:
+                plt.show()
 
 
