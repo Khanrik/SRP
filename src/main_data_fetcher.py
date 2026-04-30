@@ -60,8 +60,8 @@ def get_denmark_data(output_path: Path,
 def move_to_selected(output_path: Path):
     lr_file_path = output_path / "selected" / "lr"
     hr_file_path = output_path / "selected" / "hr"
-    lr_file_path.parent.mkdir(parents=True, exist_ok=True)
-    hr_file_path.parent.mkdir(parents=True, exist_ok=True)
+    lr_file_path.mkdir(parents=True, exist_ok=True)
+    hr_file_path.mkdir(parents=True, exist_ok=True)
 
     files_to_move = {
         "jutland": [
@@ -76,9 +76,9 @@ def move_to_selected(output_path: Path):
             "710908_6130528", # random sjælland mark
         ],
         "bornholm": [
-            "874677_6120476", # lilleborg
-            "863435_6120476", # rønne
-            "882171_6112982", # Ringborgen Rispebjerg (random bornholm mark)
+            "874344_6123316", # lilleborg
+            "862935_6119513", # rønne
+            "885754_6111907", # vibegård (random bornholm mark)
         ]
     }
 
@@ -87,17 +87,15 @@ def move_to_selected(output_path: Path):
             lr_file = output_path / "copernicus" / region / f"copernicus_{coords}.tif"
             hr_file = output_path / "dataforsyningen" / region / f"dataforsyningen_{coords}.tif"
             
+            print(f"File: {lr_file}, exists: {lr_file.exists()}")
+
             if not lr_file.exists() or not hr_file.exists():
                 print(f"Warning: Missing file for {region} with coords {coords}. LR exists: {lr_file.exists()}, HR exists: {hr_file.exists()}")
                 continue
             
-            shutil.move(str(lr_file), str(lr_file_path))
-            shutil.move(str(hr_file), str(hr_file_path))
-
-            if lr_file.exists():
-                os.remove(lr_file)
-            if hr_file.exists():
-                os.remove(hr_file)
+            print(f"Moving coordinated files for {region} with coords {coords} to selected directory...")
+            shutil.move(str(lr_file), str(lr_file_path / f"copernicus_{coords}.tif"))
+            shutil.move(str(hr_file), str(hr_file_path / f"dataforsyningen_{coords}.tif"))
 
 def main():
     data_dir = Path(__file__).resolve().parent.parent / "data"

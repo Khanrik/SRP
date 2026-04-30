@@ -381,9 +381,6 @@ def main():
                           region for region in regions],
     )
 
-    print(
-        f"Training with dataset sizes - Train: {len(data.train)}, Val: {len(data.val)}, Test: {len(data.test)}")
-
     model_config = {
         "LEARNING_RATE": 2e-4,
         "BATCH_SIZE": 3,
@@ -403,9 +400,9 @@ def main():
         plotter=plotter_instance
     )
 
-    unet_pipeline.prepare_data(DatasetInterface(data.train),
-                               DatasetInterface(data.val),
-                               DatasetInterface(data.test),
+    unet_pipeline.prepare_data(data.train,
+                               data.val,
+                               data.test,
                                model_config["BATCH_SIZE"])
 
     # flattens out at about 38 epochs
