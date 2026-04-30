@@ -372,7 +372,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
 
 def main():
     current_dir = Path(__file__).resolve().parent
-    data_root = current_dir.parent / "data"  # Contains train/, val/, test/
+    data_root = current_dir.parent / "data"
     regions = ["jutland", "funen"]
     data = get_base_dataset(
         lr_data_dir_list=[data_root / "copernicus" /
