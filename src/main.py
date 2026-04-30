@@ -276,6 +276,11 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
     if max_pixel_value is None:
         max_pixel_value = ModelPipelineList[0].max_pixel_value
 
+    def _denorm_if_needed(pipeline, tensor):
+        if getattr(pipeline, "normalize_targets", False):
+            return denormalize_target(tensor, pipeline.target_mean, pipeline.target_std)
+        return tensor
+
     images = prepare_dataloader(
         DatasetInterface(selected_test_images),
         batch_size=1,
@@ -322,7 +327,8 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         for pipeline in ModelPipelineList:
             pipeline.model.eval()
             with torch.no_grad():
-                y_pred_eval = pipeline.model(LR)
+                y_pred = pipeline.model(LR)
+                y_pred_eval = _denorm_if_needed(pipeline, y_pred)
             pred_mse = mean_squared_error(y_pred_eval.float(), HR)
                             
             pred_results=results(
@@ -354,7 +360,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         )
         
         test_result.extend([image_result])
-    plotter_instance.plot_horizontal_results(test_result)
+    plotter_instance.plot_horizontal_results(test_result, interpolation="nearest")
     
     return
 

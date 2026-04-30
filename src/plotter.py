@@ -13,6 +13,9 @@ class plotter:
         self.save_plots = save_plots
         self.save_dir.mkdir(parents=True, exist_ok=True)
 
+    def _imshow(self, ax, tensor, *, interpolation="nearest"):
+        ax.imshow(tensor, cmap="gray" if tensor.ndim == 2 else None, interpolation=interpolation)
+
     def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs):
         """Returns: Self.
         Args:
@@ -128,12 +131,13 @@ class plotter:
                 plt.show()
 
 
-    def plot_horizontal_results(self, results_list):
+    def plot_horizontal_results(self, results_list, interpolation="nearest"):
         """Plot one sample or many samples in a single figure.
 
         Args:
             results_list: Either a flat list of results for one sample, or a nested
                 list where each inner list contains the results for one sample.
+            interpolation: Matplotlib interpolation mode used for all images.
         """
         if not (self.save_plots or self.show_plots):
             return
@@ -173,7 +177,7 @@ class plotter:
                 if img.ndim == 3 and img.shape[-1] == 1:
                     img = img.squeeze(-1)
 
-                ax.imshow(img, cmap="gray" if img.ndim == 2 else None)
+                self._imshow(ax, img, interpolation=interpolation)
                 if row_idx == 0:
                     ax.set_title(column_titles[col_idx], fontsize=12, pad=8)
                 if col_idx == 0:
