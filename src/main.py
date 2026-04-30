@@ -223,7 +223,7 @@ class ModelPipeline:
                 print(f"Validation PSNR EPOCH {epoch + 1}: {val_psnr:.4f}")
                 print("-" * 30)
                 # stopping training if metrics are the same for 10 epochs in a row
-                if len(train_losses) > 10 and all(abs(train_losses[-i] - train_losses[-i-1]) < train_losses[-i]*0.5 for i in range(1, 10)):
+                if len(train_losses) > 10 and all(abs(train_losses[-i] - train_losses[-i-1]) < train_losses[-i]*0.3 for i in range(1, 10)):
                     print(f"Training loss has not improved for 10 epochs. Stopping training at epoch {epoch + 1}.")
                     break
 
@@ -406,10 +406,10 @@ def main():
                                model_config["BATCH_SIZE"])
 
     # flattens out at about 38 epochs
-    unet_pipeline.train(retrain=True)
+    unet_pipeline.train(retrain=False)
 
     unet_pipeline.test()
-    visualiser([unet_pipeline], plotter_instance, data.test[:4], model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
+    visualiser([unet_pipeline], plotter_instance, data.test, model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
 
     print("finished main")
 
