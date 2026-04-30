@@ -372,7 +372,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
 
 def main():
     current_dir = Path(__file__).resolve().parent
-    data_root = current_dir.parent / "data"  # Contains train/, val/, test/
+    data_root = current_dir.parent / "data"
     regions = ["jutland", "funen"]
     data = get_base_dataset(
         lr_data_dir_list=[data_root / "copernicus" /
@@ -409,7 +409,15 @@ def main():
     unet_pipeline.train(retrain=True)
 
     unet_pipeline.test()
-    visualiser([unet_pipeline], plotter_instance, data.test[:4], model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
+
+    regions = ["jutland", "zealand", "bornholm"]
+    visualization_data = get_base_dataset(
+        lr_data_dir_list=[data_root / "selected" / "lr" / region for region in regions],
+        hr_data_dir_list=[data_root / "selected" / "hr" / region for region in regions],
+        division=DataDivision(train=0.0, val=0.0, test=1.0)
+    ).test
+
+    visualiser([unet_pipeline], plotter_instance, visualization_data, model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
 
     print("finished main")
 
