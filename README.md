@@ -29,3 +29,16 @@ If you don't have an Nvidia GPU, you can install the CPU version of PyTorch like
 ```
 pip3 install torch torchvision
 ```
+
+A successfull installation can be tested by running
+```
+import torch
+print("cuda") if torch.cuda.is_available()  else print("cpu")
+```
+which should output `cuda`
+
+Note: if torch and pytorch is already installed, it may be necessary to uninstall the current versions before installation. This can be done as follows:
+```
+pip3 uninstall torch torchvision
+```
+
