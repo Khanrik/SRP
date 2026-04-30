@@ -287,7 +287,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         return tensor
 
     images = prepare_dataloader(
-        DatasetInterface(selected_test_images),
+        selected_test_images,
         batch_size=1,
         pin_memory=device == "cuda",
         shuffle_bool=False
