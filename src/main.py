@@ -126,70 +126,10 @@ class ModelPipeline:
 
             if idx == 0:
                 if training_state == "test":
-                    if self.plotter.save_plots or self.plotter.show_plots:
-                        # create bilinear upsampled image for comparison in the horizontal results plot, and calculate metrics for it as well.
-                        bilinear = torch.nn.functional.interpolate(
-                            LR,
-                            size=HR.shape[-2:],
-                            mode="bilinear",
-                            align_corners=False,
-                        )
-
-                        bilinear_mse = mean_squared_error(bilinear.float(), HR)
-                        pred_mse = mean_squared_error(y_pred_eval.float(), HR)
-                        hr_mse = mean_squared_error(HR.float(), HR)
-                        # add original low resolution image
-
-                        horizontal_results = [
-                            results(
-                                MSE=0,
-                                MAE=0,
-                                RMSE=0,
-                                PSNR=0,
-                                image=LR[0],
-                                name="LR Input",
-                            ),
-                            results(
-                                MSE=bilinear_mse,
-                                MAE=mean_absolute_error(bilinear.float(), HR),
-                                RMSE=root_mean_squared_error(
-                                    bilinear.float(), HR, bilinear_mse),
-                                PSNR=peak_signal_to_noise_ratio(
-                                    bilinear.float(), HR, self.max_pixel_value, bilinear_mse),
-                                image=bilinear[0],
-                                name="bilinear",
-                            ),
-                            results(
-                                MSE=pred_mse,
-                                MAE=mean_absolute_error(
-                                    y_pred_eval.float(), HR),
-                                RMSE=root_mean_squared_error(
-                                    y_pred_eval.float(), HR, pred_mse),
-                                PSNR=peak_signal_to_noise_ratio(
-                                    y_pred_eval.float(), HR, self.max_pixel_value, pred_mse),
-                                image=y_pred_eval[0],
-                                name="Prediction",
-                            ),
-                            results(
-                                MSE=hr_mse,
-                                MAE=mean_absolute_error(HR.float(), HR),
-                                RMSE=root_mean_squared_error(
-                                    HR.float(), HR, hr_mse),
-                                PSNR=peak_signal_to_noise_ratio(
-                                    HR.float(), HR, self.max_pixel_value, hr_mse),
-                                image=HR[0],
-                                name="GT",
-                            ),
-                        ]
-
-                        self.plotter.plot_horizontal_results(
-                            horizontal_results,
-                            f"test_horizontal_results_epoch_{epoch + 1}.png",
-                        )
-                        return horizontal_results
+                    self.plotter.plot_training_images(LR=LR, HR=HR, prediction=y_pred_eval,train_loss=running["Loss"], train_mae=running["MAE"], train_rmse=running["RMSE"], train_psnr=running["PSNR"])
                 else:
-                    log_shape_and_memory(
-                        training_state, epoch, idx, LR, HR, y_pred_eval, self.cuda)
+                    log_shape_and_memory(training_state, epoch, idx, LR, HR, y_pred_eval, self.cuda)
+
 
         return [np.mean(running[key]) for key in ("Loss", "MAE", "RMSE", "PSNR")]
 
@@ -298,9 +238,12 @@ class ModelPipeline:
                                                 train_psnrs, val_losses, val_maes, val_rmses, val_psnrs)
             
         else:
+            if not (Path(__file__).resolve().parent.parent / "checkpoints" / f"{self.model.__class__.__name__}.pth").exists():
+                print(f"No existing model weights found for {self.model.__class__.__name__}. Cannot skip retraining.")
+                self.train(retrain=True)
+                return
             print("Skipping retraining and using existing model weights.")
             model_pth = Path(__file__).resolve().parent.parent / "checkpoints" / f"{self.model.__class__.__name__}.pth"
-            self.model = UNet(in_channels=1, num_classes=1).to(self.device)
             self.model.load_state_dict(torch.load(model_pth, map_location=torch.device(self.device), weights_only=True))
             
         
@@ -310,25 +253,116 @@ class ModelPipeline:
         """
         self.model.eval()
         with torch.no_grad():
-            test_loss, test_mae, test_rmse, test_psnr = self._run_loop(
-                self.test_dataloader, training_state="test", epoch=0, use_amp=False)
+            test_loss, test_mae, test_rmse, test_psnr = self._run_loop(self.test_dataloader, training_state="test", epoch=0, use_amp=False)
 
         print(f"Test Loss: {test_loss:.4f}")
         print(f"Test MAE: {test_mae:.4f}")
         print(f"Test RMSE: {test_rmse:.4f}")
         print(f"Test PSNR: {test_psnr:.4f}")
-        return test_loss, test_mae, test_rmse, test_psnr
+        return 
 
+                    
 
-def tester(ModelPipelineList):
+def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device, max_pixel_value: float | None = None):
     """Returns: None. Tests multiple model pipelines and prints their test losses and difference coefficients for comparison.
     Args:
         ModelPipelineList: A list of ModelPipeline instances to be tested.
+        plotter_instance: An instance of the plotter class for visualization.
+        selected_test_images: A list of lr and hr image pairs to be used for testing and visualization.
     """
-    results = []
-    for pipeline in ModelPipelineList:
-        pipeline.test()
+    if not ModelPipelineList:
+        raise ValueError("visualiser requires at least one ModelPipeline instance.")
 
+    if max_pixel_value is None:
+        max_pixel_value = ModelPipelineList[0].max_pixel_value
+
+    def _denorm_if_needed(pipeline, tensor):
+        if getattr(pipeline, "normalize_targets", False):
+            return denormalize_target(tensor, pipeline.target_mean, pipeline.target_std)
+        return tensor
+
+    images = prepare_dataloader(
+        DatasetInterface(selected_test_images),
+        batch_size=1,
+        pin_memory=device == "cuda",
+        shuffle_bool=False
+    )
+    test_result=[]
+    for LR, HR in tqdm(images, position=0, leave=True):
+        image_result = []
+        # creating LR and HR tensors for the batch and moving them to the correct device.
+        LR = LR.float().to(device)
+        HR = HR.float().to(device)
+        # create bilinear upsampled image for comparison in the horizontal results plot, and calculate metrics for it as well.
+        bilinear = torch.nn.functional.interpolate(
+            LR,
+            size=HR.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
+        bilinear_mse = mean_squared_error(bilinear.float(), HR)
+        # add original low resolution image
+        image_result.append(
+            results(
+                MSE=0,
+                MAE=0,
+                RMSE=0,
+                PSNR=0,
+                image=LR[0],
+                name="LR Input",
+            ),
+        )
+        image_result.append(
+            results(
+                MSE=bilinear_mse,
+                MAE=mean_absolute_error(bilinear.float(), HR),
+                RMSE=root_mean_squared_error(
+                    bilinear.float(), HR, bilinear_mse),
+                PSNR=peak_signal_to_noise_ratio(
+                    bilinear.float(), HR, max_pixel_value, bilinear_mse),
+                image=bilinear[0],
+                name="bilinear",
+            )
+        )
+        for pipeline in ModelPipelineList:
+            pipeline.model.eval()
+            with torch.no_grad():
+                y_pred = pipeline.model(LR)
+                y_pred_eval = _denorm_if_needed(pipeline, y_pred)
+            pred_mse = mean_squared_error(y_pred_eval.float(), HR)
+                            
+            pred_results=results(
+                MSE=pred_mse,
+                MAE=mean_absolute_error(
+                    y_pred_eval.float(), HR),
+                RMSE=root_mean_squared_error(
+                    y_pred_eval.float(), HR, pred_mse),
+                PSNR=peak_signal_to_noise_ratio(
+                    y_pred_eval.float(), HR, max_pixel_value, pred_mse),
+                image=y_pred_eval[0],
+                name=pipeline.model.__class__.__name__,
+            )
+            image_result.append(pred_results)
+        
+        # add ground truth image
+        hr_mse = mean_squared_error(HR.float(), HR)
+        image_result.append(
+            results(
+                MSE=hr_mse,
+                MAE=mean_absolute_error(HR.float(), HR),
+                RMSE=root_mean_squared_error(
+                    HR.float(), HR, hr_mse),
+                PSNR=peak_signal_to_noise_ratio(
+                    HR.float(), HR, max_pixel_value, hr_mse),
+                image=HR[0],
+                name="GT",
+            )
+        )
+        
+        test_result.extend([image_result])
+    plotter_instance.plot_horizontal_results(test_result, interpolation="nearest")
+    
+    return
 
 
 def main():
@@ -352,7 +386,8 @@ def main():
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
-        "CRITERION": SmoothGradLoss(beta=1.0, lambda_grad=0.2)
+        "CRITERION": SmoothGradLoss(beta=1.0, lambda_grad=0.2),
+        "NORMALIZE_TARGETS": True
     }
     plotter_instance = plotter(save_dir=current_dir.parent / "checkpoints" / "plots", show_plots=True, save_plots=True)
 
@@ -371,9 +406,10 @@ def main():
     # flattens out at about 38 epochs
     unet_pipeline.train(retrain=False)
 
-
     unet_pipeline.test()
+    visualiser([unet_pipeline], plotter_instance, data.test[:3], model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
 
+    print("finished main")
 
 if __name__ == "__main__":
     main()

@@ -1,12 +1,7 @@
 
 import os
 import time
-from helpers import results
 import matplotlib.pyplot as plt
-import torch
-import numpy as np
-from matplotlib.gridspec import GridSpec
-from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -18,7 +13,10 @@ class plotter:
         self.save_plots = save_plots
         self.save_dir.mkdir(parents=True, exist_ok=True)
 
-    def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs, save_path=None, display_plots=False):
+    def _imshow(self, ax, tensor, *, interpolation="nearest"):
+        ax.imshow(tensor, cmap="gray" if tensor.ndim == 2 else None, interpolation=interpolation)
+
+    def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs):
         """Returns: Self.
         Args:
             train_losses: List of training losses per epoch.
@@ -29,7 +27,6 @@ class plotter:
             val_maes: List of validation MAEs per epoch.
             val_rmses: List of validation RMSEs per epoch.
             val_psnrs: List of validation PSNRs per epoch.
-            save_path: Optional path to save the plot image.
             display_plots: Whether to display the plots interactively.
         """
         if self.save_plots or self.show_plots:
@@ -73,24 +70,24 @@ class plotter:
             if self.show_plots:
                 plt.show()
 
-            if self.save_plots and save_path:
+            if self.save_plots and self.save_dir:
                 plt.savefig(os.path.join(self.save_dir, f'training_validation_metrics_{time.strftime("%Y-%m-%d_%H-%M-%S")}.png'), dpi=300, bbox_inches="tight")
 
-    def _to_plot_array(self,tensor):
-            # Handling the batch dimension and channel dimension for plotting.
-            tensor = tensor.detach().cpu()
-            if tensor.ndim == 4:
-                tensor = tensor[0]  # Display first image in the batch.
-            if tensor.ndim == 3:
-                if tensor.shape[0] == 1:
-                    tensor = tensor[0]
-                elif tensor.shape[0] in (3, 4):
-                    tensor = tensor.permute(1, 2, 0)
-                else:
-                    tensor = tensor[0]
-            if tensor.ndim != 2 and tensor.ndim != 3:
-                raise ValueError(f"Unsupported tensor shape for plotting: {tuple(tensor.shape)}")
-            return tensor.numpy()
+    def _to_plot_array(self, tensor):
+        # Handling the batch dimension and channel dimension for plotting.
+        tensor = tensor.detach().cpu()
+        if tensor.ndim == 4:
+            tensor = tensor[0]  # Display first image in the batch.
+        if tensor.ndim == 3:
+            if tensor.shape[0] == 1:
+                tensor = tensor[0]
+            elif tensor.shape[0] in (3, 4):
+                tensor = tensor.permute(1, 2, 0)
+            else:
+                tensor = tensor[0]
+        if tensor.ndim != 2 and tensor.ndim != 3:
+            raise ValueError(f"Unsupported tensor shape for plotting: {tuple(tensor.shape)}")
+        return tensor.numpy()
 
 
     def plot_training_images(self, LR, HR, prediction, train_loss, train_mae, train_rmse, train_psnr, display_images=False):
@@ -134,94 +131,88 @@ class plotter:
                 plt.show()
 
 
-    def plot_horizontal_results(self, results_list):
-        """Returns: Self.
+    def plot_horizontal_results(self, results_list, interpolation="nearest"):
+        """Plot one sample or many samples in a single figure.
+
         Args:
-            results_list: A list of results object containing lists of training and validation metrics per epoch.
+            results_list: Either a flat list of results for one sample, or a nested
+                list where each inner list contains the results for one sample.
+            interpolation: Matplotlib interpolation mode used for all images.
         """
-        if self.save_plots or self.show_plots:
-            n = len(results_list)
+        if not (self.save_plots or self.show_plots):
+            return
 
-            fig = plt.figure(figsize=(4 * n, 6))
-            gs = GridSpec(
-                2, n,
-                height_ratios=[4, 1.8],
-                hspace=0.03,
-                wspace=0.05
-            )
+        if not results_list:
+            raise ValueError("results_list cannot be empty.")
 
-            # --------------------------------------------------------
-            # TOP ROW: IMAGES
-            # --------------------------------------------------------
-            for i, r in enumerate(results_list):
-                ax = fig.add_subplot(gs[0, i])
+        is_nested = isinstance(results_list[0], list)
+        sample_groups = results_list if is_nested else [results_list]
 
-                img = r.image.detach().cpu()
+        num_rows = len(sample_groups)
+        num_cols = len(sample_groups[0])
 
-                # Handle CHW -> HWC
+        for group in sample_groups:
+            if len(group) != num_cols:
+                raise ValueError("All result groups must contain the same number of entries.")
+
+        fig, axes = plt.subplots(
+            num_rows,
+            num_cols,
+            figsize=(4 * num_cols, 4 * num_rows),
+            squeeze=False,
+        )
+
+        column_titles = [result.name for result in sample_groups[0]]
+
+        for row_idx, group in enumerate(sample_groups):
+            for col_idx, result in enumerate(group):
+                ax = axes[row_idx][col_idx]
+
+                img = result.image.detach().cpu()
                 if img.ndim == 3:
                     if img.shape[0] in [1, 3]:
                         img = img.permute(1, 2, 0)
 
                 img = img.numpy()
-
-                # grayscale squeeze
-                if img.shape[-1] == 1:
+                if img.ndim == 3 and img.shape[-1] == 1:
                     img = img.squeeze(-1)
 
-                ax.imshow(img, cmap="gray" if img.ndim == 2 else None)
-                ax.set_title(r.name, fontsize=12, pad=8)
+                self._imshow(ax, img, interpolation=interpolation)
+                if row_idx == 0:
+                    ax.set_title(column_titles[col_idx], fontsize=12, pad=8)
+                if col_idx == 0:
+                    ax.set_ylabel(f"Sample {row_idx + 1}", fontsize=11, rotation=0, labelpad=32, va="center")
                 ax.axis("off")
 
-            # --------------------------------------------------------
-            # TABLE DATA
-            # --------------------------------------------------------
-            metric_names = ["MSE", "MAE", "RMSE", "PSNR"]
+                metrics_text = (
+                    f"MSE {result.MSE:.4f}\n"
+                    f"MAE {result.MAE:.4f}\n"
+                    f"RMSE {result.RMSE:.4f}\n"
+                    f"PSNR {result.PSNR:.4f}"
+                )
+                ax.text(
+                    0.5,
+                    -0.12,
+                    metrics_text,
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=8,
+                )
 
-            cell_text = []
+        fig.tight_layout()
 
-            for metric in metric_names:
-                row = []
-                for r in results_list:
-                    val = getattr(r, metric)
-                    row.append(f"{val:.4f}")
-                cell_text.append(row)
-
-            col_labels = [r.name for r in results_list]
-
-            # --------------------------------------------------------
-            # TABLE
-            # --------------------------------------------------------
-            ax_table = fig.add_subplot(gs[1, :])
-            ax_table.axis("off")
-
-            table = ax_table.table(
-                cellText=cell_text,
-                rowLabels=metric_names,
-                colLabels=col_labels,
-                loc="center",
-                cellLoc="center",
-                rowLoc="center"
+        if self.save_plots and self.save_dir:
+            fig.savefig(
+                os.path.join(
+                    self.save_dir,
+                    f"horizontal_results_{time.strftime('%Y-%m-%d_%H-%M-%S')}.png",
+                ),
+                dpi=300,
+                bbox_inches="tight",
             )
 
-            table.auto_set_font_size(False)
-            table.set_fontsize(10)
-            table.scale(1.0, 1.6)
-
-            # cleaner borders
-            for (row, col), cell in table.get_celld().items():
-                cell.set_linewidth(0.6)
-
-            # bold column headers
-            for col in range(n):
-                table[(0, col)].set_text_props(weight="bold")
-
-            plt.tight_layout()
-
-            if self.save_plots and self.save_dir:
-                plt.savefig(os.path.join(self.save_dir, f"horizontal_results_{time.strftime('%Y-%m-%d_%H-%M-%S')}.png"), dpi=300, bbox_inches="tight")
-
-            if self.show_plots:
-                plt.show()
+        if self.show_plots:
+            plt.show()
 
 
