@@ -69,7 +69,8 @@ class DataDivision:
 class DatasetInterface(Dataset):
     def __init__(self,
                  data_pairs: list[DataPair],
-                 lr_target_size: tuple[int, int] = (128, 128)):
+                 lr_target_size: tuple[int, int] = (128, 128),
+                 loading_description: str = "Loading dataset"):
         self.lr_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Resize(lr_target_size)
@@ -81,7 +82,7 @@ class DatasetInterface(Dataset):
 
         self.lr = []
         self.hr = []
-        for pair in tqdm(data_pairs, desc="Loading dataset"):
+        for pair in tqdm(data_pairs, desc=loading_description):
             self.lr.append(Image.open(pair.lr))
             self.hr.append(Image.open(pair.hr))
 

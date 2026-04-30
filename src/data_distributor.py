@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from helpers import DataDivision
+from helpers import DataDivision, DatasetInterface
 from random import Random
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -19,19 +19,19 @@ class DataSplits:
     
     Attributes
     ---------
-        train : list[DataPair]
+        train : DatasetInterface
             Data for training.
-        val : list[DataPair]
+        val : DatasetInterface
             Data for validation.
-        test : list[DataPair]
+        test : DatasetInterface
             Data for testing.
-        dataset : list[DataPair]
+        dataset : DatasetInterface
             The entire dataset (sum of all splits).
     """
-    train: list[DataPair]
-    val: list[DataPair]
-    test: list[DataPair]
-    
+    train: DatasetInterface
+    val: DatasetInterface
+    test: DatasetInterface
+
     @property
     def dataset(self):
         return self.train + self.val + self.test
@@ -67,9 +67,9 @@ def get_base_dataset(lr_data_dir_list: list[Path],
     val_end = train_count + val_count
     
     data_splits = DataSplits(
-        train=all_pairs[:train_end], 
-        val=all_pairs[train_end:val_end], 
-        test=all_pairs[val_end:]
+        train=DatasetInterface(all_pairs[:train_end], loading_description="Loading training data"),
+        val=DatasetInterface(all_pairs[train_end:val_end], loading_description="Loading validation data"),
+        test=DatasetInterface(all_pairs[val_end:], loading_description="Loading test data")
     )
 
     return data_splits
