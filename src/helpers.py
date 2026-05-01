@@ -128,12 +128,12 @@ def root_mean_squared_error(prediction, target, mse=None) -> float:
     rmse = np.sqrt(mse)
     return rmse
 
-def peak_signal_to_noise_ratio(prediction, target, max_pixel_value, mse=None) -> float:
+def peak_signal_to_noise_ratio(prediction, target, max_pixel_value=1, mse=None) -> float:
     """Calculates the PSNR between the predicted and target tensors
     Args:
         prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
         target: The ground truth target tensor of the same shape as prediction.
-        max_pixel_value: The maximum pixel value in the data.
+        max_pixel_value: The maximum pixel value in the data. Defaults to 1 for data normalized between 0 and 1.
         mse: The mean squared error between the predicted and target tensors.
     """
     if mse is None:
@@ -143,55 +143,52 @@ def peak_signal_to_noise_ratio(prediction, target, max_pixel_value, mse=None) ->
     psnr = 10 * np.log10(max_pixel_value**2 / mse)
     return psnr
 
-def compute_max_pixel_value(dataset: DatasetInterface, batch_size: int) -> float:
+def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int) -> tuple[float, float]:
+    """Computes the minimum and maximum pixel values across the entire dataset
+    
+    Returns:
+        (min_pixel_value, max_pixel_value): The minimum and maximum pixel values found in the dataset
+    """
     loader = DataLoader(dataset, batch_size=batch_size)
+    min_pixel_value = float('inf')
     max_pixel_value = float('-inf')
-    for _, hr in tqdm(loader, desc="Computing max pixel value"):
-        max_pixel_value = max(max_pixel_value, hr.max().item())
-    return max_pixel_value
+    for lr, hr in tqdm(loader, desc="Computing extremal pixel values"):
+        relative_min_pixel_value = min(lr.min().item(), hr.min().item())
+        relative_max_pixel_value = max(lr.max().item(), hr.max().item())
+        min_pixel_value = min(min_pixel_value, relative_min_pixel_value)
+        max_pixel_value = max(max_pixel_value, relative_max_pixel_value)
 
-def compute_target_norm_stats(dataset: DatasetInterface, 
-                              stats_batch_size: int, 
-                              num_workers: int = 0, 
-                              target_norm_eps: float = 1e-6) -> tuple[float, float]:
-    # Compute train-target mean/std once so normalization can be toggled on safely.
-    stats_loader = DataLoader(
-        dataset=dataset,
-        batch_size=stats_batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=False,
-        persistent_workers=False,
-    )
+    return min_pixel_value, max_pixel_value
 
-    total_sum = 0.0
-    total_sq_sum = 0.0
-    total_count = 0
-    with torch.no_grad():
-        for _, hr in tqdm(stats_loader, desc="Computing normalization stats"):
-            hr = hr.float()
-            total_sum += hr.sum().item()
-            total_sq_sum += (hr * hr).sum().item()
-            total_count += hr.numel()
+def normalize_targets(target: torch.Tensor, opt_target: torch.Tensor = None, min_pixel_value: float = None, max_pixel_value: float = None) -> tuple[torch.Tensor, torch.Tensor, float, float]:
+    """Normalizes a tensor or pair of tensors between 0 and 1
 
-    if total_count == 0:
-        raise ValueError("Cannot compute normalization stats from an empty training dataset.")
+    Args:
+        target: The target tensor to normalize
+        opt_target: An optional tensor to pair with the target. Not including opt_target will normalize target based on its own min and max values.
+        min_pixel_value: The minimum pixel value in the dataset. If None, it will use the relative min value between target and opt_target.
+        max_pixel_value: The maximum pixel value in the dataset. If None, it will use the relative max value between target and opt_target.
 
-    mean = total_sum / total_count
-    variance = max((total_sq_sum / total_count) - (mean * mean), 0.0)
-    std = max(variance ** 0.5, target_norm_eps) # Avoid zero std with epsilon floor.
+    Returns:
+        (target, opt_target, min_pixel_value, max_pixel_value): Normalized pair of tensors (`target == opt_target` if opt_target is not provided) and the min and max pixel values used for normalization
+    """
+    opt_target = opt_target or target
+    max_pixel_value = max_pixel_value or max(target.max().item(), opt_target.max().item())
+    min_pixel_value = min_pixel_value or min(target.min().item(), opt_target.min().item())
+    if max_pixel_value == min_pixel_value:
+        return target, opt_target, min_pixel_value, max_pixel_value
+    return (target - min_pixel_value) / (max_pixel_value - min_pixel_value), (opt_target - min_pixel_value) / (max_pixel_value - min_pixel_value), min_pixel_value, max_pixel_value
 
-    target_mean = mean
-    target_std = std
-    print(f"[norm] target_mean={target_mean:.6f} target_std={target_std:.6f}")
-    return target_mean, target_std
-
-
-def normalize_target(target, target_mean, target_std) -> torch.Tensor:
-    return (target - target_mean) / target_std
-
-def denormalize_target(target, target_mean, target_std) -> torch.Tensor:
-    return target * target_std + target_mean
+def denormalize_target(target: torch.Tensor, min_pixel_value: float, max_pixel_value: float) -> torch.Tensor:
+    """
+    Args:
+        target: The normalized target tensor that is normalized
+        min_pixel_value: The minimum pixel value that was used for normalization.
+        max_pixel_value: The maximum pixel value that was used for normalization.
+    Returns:
+        
+    """
+    return target * (max_pixel_value - min_pixel_value) + min_pixel_value
 
 def tensor_mb(tensor) -> float:
     # Calculate the approximate memory usage of a tensor in megabytes. 

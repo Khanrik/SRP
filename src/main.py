@@ -43,10 +43,10 @@ class ModelPipeline:
         self.num_workers = 0
         self.max_pixels_per_image = max_pixels_per_image
         self.profile_layers_once = model_config["PROFILE_LAYERS_ONCE"]
-        self.normalize_targets = model_config["NORMALIZE_TARGETS"]
         self.target_norm_eps = target_norm_eps
         self.plotter = plotter
         self.epochs = model_config["EPOCHS"]
+        self.global_norm = model_config["GLOBAL_NORMALIZATION"]
 
         # this enables compatibility for older python 3.8.10 i think or maybe linux
         try:
@@ -72,13 +72,16 @@ class ModelPipeline:
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
-            HR_for_loss = normalize_target(
-                HR, self.target_mean, self.target_std) if self.normalize_targets else HR
+            if training_state == "train":
+                min_val, max_val = self.min_pixel_value, self.max_pixel_value if self.global_norm else None, None
+                normalized_LR, normalized_HR, min_val, max_val = normalize_targets(LR, HR, min_pixel_value=min_val, max_pixel_value=max_val)
+            else:
+                normalized_LR, _, min_val, max_val = normalize_targets(LR)
+                _, normalized_HR, _, _ = normalize_targets(HR)
 
             if epoch == 0 and idx == 0:
                 # Profiling for memory usage stats to avoid OOM errors.
-                profile_layer_activations(
-                    self.model, LR, self.cuda, self.profile_layers_once)
+                profile_layer_activations(self.model, normalized_LR, self.cuda, self.profile_layers_once)
 
             # Using autocasting for the forward pass and loss calculation to reduce memory usage.
             # If cuda is false, this will just be a nullcontext and have no effect.
@@ -91,10 +94,9 @@ class ModelPipeline:
             try:
                 with autocast_ctx:
                     # Forward pass through the model to get predictions, and calculating the loss with the criterion.
-                    y_pred = self.model(LR)
-                    validate_batch_shapes(
-                        LR, HR_for_loss, y_pred, self.max_pixels_per_image)
-                    loss = self.criterion(y_pred, HR_for_loss)
+                    validate_batch_shapes(normalized_LR, normalized_HR, y_pred, self.max_pixels_per_image)
+                    y_pred = self.model(normalized_LR)
+                    loss = self.criterion(y_pred, normalized_HR)
             except RuntimeError as err:
                 if "not enough memory" in str(err).lower():
                     # catching OOM errors during the forward pass or loss calculation.
@@ -104,16 +106,13 @@ class ModelPipeline:
                         "OOM during forward/loss. Reduce BATCH_SIZE, use smaller resize_to, or simplify model."
                     ) from err
                 raise
-            y_pred_eval = denormalize_target(
-                y_pred, self.target_mean, self.target_std) if self.normalize_targets else y_pred
 
+            y_pred_eval = denormalize_target(y_pred, min_pixel_value=min_val, max_pixel_value=max_val)
             mse = mean_squared_error(y_pred_eval.float(), HR)
             running["Loss"].append(loss.item())
             running["MAE"].append(mean_absolute_error(y_pred_eval.float(), HR))
-            running["RMSE"].append(root_mean_squared_error(
-                y_pred_eval.float(), HR, mse))
-            running["PSNR"].append(peak_signal_to_noise_ratio(
-                y_pred_eval.float(), HR, self.max_pixel_value, mse))
+            running["RMSE"].append(root_mean_squared_error(y_pred_eval.float(), HR, mse))
+            running["PSNR"].append(peak_signal_to_noise_ratio(y_pred.float(), normalized_HR)) # normalized tensors are used for PSNR
 
             if training_state == "train":
                 # Using set_to_none=True to reduce memory usage by freeing gradients immediately after backward pass.
@@ -143,12 +142,8 @@ class ModelPipeline:
             prepare_dataloader(train_dataset, batch_size, self.cuda), \
             prepare_dataloader(val_dataset, batch_size, self.cuda), \
             prepare_dataloader(test_dataset, batch_size, self.cuda)
-
-        if self.normalize_targets:
-            self.target_mean, self.target_std = compute_target_norm_stats(
-                train_dataset, batch_size, self.num_workers, self.target_norm_eps)
-        self.max_pixel_value = compute_max_pixel_value(
-            train_dataset + val_dataset + test_dataset, batch_size)
+        
+        self.min_pixel_value, self.max_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size)
 
         if self.train_dataloader is None or self.val_dataloader is None or self.test_dataloader is None:
             raise ValueError(
@@ -281,11 +276,6 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
     if max_pixel_value is None:
         max_pixel_value = ModelPipelineList[0].max_pixel_value
 
-    def _denorm_if_needed(pipeline, tensor):
-        if getattr(pipeline, "normalize_targets", False):
-            return denormalize_target(tensor, pipeline.target_mean, pipeline.target_std)
-        return tensor
-
     images = prepare_dataloader(
         selected_test_images,
         batch_size=1,
@@ -298,6 +288,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         # creating LR and HR tensors for the batch and moving them to the correct device.
         LR = LR.float().to(device)
         HR = HR.float().to(device)
+        _, normalized_HR, _, _ = normalize_targets(HR)
         # create bilinear upsampled image for comparison in the horizontal results plot, and calculate metrics for it as well.
         bilinear = torch.nn.functional.interpolate(
             LR,
@@ -324,7 +315,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
                 RMSE=root_mean_squared_error(
                     bilinear.float(), HR, bilinear_mse),
                 PSNR=peak_signal_to_noise_ratio(
-                    bilinear.float(), HR, max_pixel_value, bilinear_mse),
+                    normalize_targets(bilinear.float())[0], normalized_HR),
                 image=bilinear[0],
                 name="bilinear",
             )
@@ -332,8 +323,9 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         for pipeline in ModelPipelineList:
             pipeline.model.eval()
             with torch.no_grad():
-                y_pred = pipeline.model(LR)
-                y_pred_eval = _denorm_if_needed(pipeline, y_pred)
+                normalized_LR, _, min_val, max_val = normalize_targets(LR)
+                y_pred = pipeline.model(normalized_LR)
+                y_pred_eval = denormalize_target(y_pred, min_val, max_val)
             pred_mse = mean_squared_error(y_pred_eval.float(), HR)
                             
             pred_results=results(
@@ -343,7 +335,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
                 RMSE=root_mean_squared_error(
                     y_pred_eval.float(), HR, pred_mse),
                 PSNR=peak_signal_to_noise_ratio(
-                    y_pred_eval.float(), HR, max_pixel_value, pred_mse),
+                    y_pred.float(), normalized_HR),
                 image=y_pred_eval[0],
                 name=pipeline.model.__class__.__name__,
             )
@@ -389,7 +381,7 @@ def main():
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
         "CRITERION": GradLoss(),
-        "NORMALIZE_TARGETS": True
+        "GLOBAL_NORMALIZATION": True
     }
     plotter_instance = plotter(save_dir=current_dir.parent / "checkpoints" / "plots", show_plots=True, save_plots=True)
 
