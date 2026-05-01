@@ -56,9 +56,11 @@ def _pair_files(lr_data_dir_list: list[Path],
 
 def get_base_dataset(lr_data_dir_list: list[Path],
                      hr_data_dir_list: list[Path],
-                     division: DataDivision = DataDivision(train=0.8, val=0.1, test=0.1)) -> DataSplits:
+                     division: DataDivision = DataDivision(train=0.8, val=0.1, test=0.1),
+                     randomize: bool = True) -> DataSplits:
     all_pairs = _pair_files(lr_data_dir_list, hr_data_dir_list)
-    Random().shuffle(all_pairs)
+    if randomize:
+        Random().shuffle(all_pairs)
     N = len(all_pairs)
 
     train_count = int(N * division.train)

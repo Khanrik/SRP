@@ -20,12 +20,9 @@ if TYPE_CHECKING:
 
 @dataclass
 class results:
-    MSE: float
-    MAE: float
-    RMSE: float
-    PSNR: float
     image: torch.Tensor
     name: str
+    metrics: list[tuple[str, float]]
 
 @dataclass
 class BoundingBoxDegree:

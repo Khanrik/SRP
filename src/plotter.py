@@ -188,11 +188,9 @@ class plotter:
                         ax.set_ylabel(f"Sample {sample_number}", fontsize=11, rotation=0, labelpad=32, va="center")
                     ax.axis("off")
 
-                    metrics_text = (
-                        f"MSE {result.MSE:.4f}\n"
-                        f"MAE {result.MAE:.4f}\n"
-                        f"RMSE {result.RMSE:.4f}\n"
-                        f"PSNR {result.PSNR:.4f}"
+                    metrics_text = "\n".join(
+                        f"{metric_name} {metric_value:.4f}"
+                        for metric_name, metric_value in result.metrics
                     )
                     ax.text(
                         0.5,
