@@ -14,11 +14,6 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
     if max_pixel_value is None:
         max_pixel_value = ModelPipelineList[0].max_pixel_value
 
-    def _denorm_if_needed(pipeline, tensor):
-        if getattr(pipeline, "normalize_targets", False):
-            return denormalize_target(tensor, pipeline.target_mean, pipeline.target_std)
-        return tensor
-
     def _safe_ssim(pred_tensor, tgt_tensor, max_pixel_value):
         # Convert tensors to numpy images and handle channel ordering for skimage
         p = pred_tensor.detach().cpu().numpy()
@@ -58,12 +53,12 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
                 return float(ssim(p, t, data_range=max_pixel_value, win_size=win_size))
 
 
-    def _metric_items(prediction, target, max_pixel_value, mse=None):
+    def _metric_items(prediction, normalized_prediction, target, normalized_target, max_pixel_value, mse=None):
         if mse is None:
             mse = mean_squared_error(prediction.float(), target)
         mae = mean_absolute_error(prediction.float(), target)
         rmse = root_mean_squared_error(prediction.float(), target, mse)
-        psnr = peak_signal_to_noise_ratio(prediction.float(), target, max_pixel_value, mse)
+        psnr = peak_signal_to_noise_ratio(normalized_prediction.float(), normalized_target)
         ssim_value = _safe_ssim(prediction, target, max_pixel_value)
         return [
             ("MAE", mae),
@@ -84,6 +79,8 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         # creating LR and HR tensors for the batch and moving them to the correct device.
         LR = LR.float().to(device)
         HR = HR.float().to(device)
+        normalized_LR, _, min_val, max_val = normalize_targets(LR)
+        normalized_HR, _, _, _ = normalize_targets(HR)
         # create bilinear upsampled image for comparison in the horizontal results plot, and calculate metrics for it as well.
         bilinear = torch.nn.functional.interpolate(
             LR,
@@ -104,20 +101,20 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
             results(
                 image=bilinear[0],
                 name="bilinear",
-                metrics=_metric_items(bilinear, HR, max_pixel_value, bilinear_mse),
+                metrics=_metric_items(bilinear, normalize_targets(bilinear)[0], HR, normalized_HR, max_pixel_value, bilinear_mse),
             )
         )
         for pipeline in ModelPipelineList:
             pipeline.model.eval()
             with torch.no_grad():
-                y_pred = pipeline.model(LR)
-                y_pred_eval = _denorm_if_needed(pipeline, y_pred)
+                y_pred = pipeline.model(normalized_LR)
+                y_pred_eval = denormalize_target(y_pred, min_val, max_val)
             pred_mse = mean_squared_error(y_pred_eval.float(), HR)
                             
             pred_results=results(
                 image=y_pred_eval[0],
                 name=pipeline.model.__class__.__name__,
-                metrics=_metric_items(y_pred_eval, HR, max_pixel_value, pred_mse),
+                metrics=_metric_items(y_pred_eval, y_pred, HR, normalized_HR, max_pixel_value, pred_mse),
             )
             image_result.append(pred_results)
         
@@ -127,7 +124,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
             results(
                 image=HR[0],
                 name="GT",
-                metrics=_metric_items(HR, HR, max_pixel_value, hr_mse),
+                metrics=_metric_items(HR, normalized_HR, HR, normalized_HR, max_pixel_value, hr_mse),
             )
         )
         

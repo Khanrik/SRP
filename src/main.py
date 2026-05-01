@@ -74,7 +74,7 @@ class ModelPipeline:
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
             if training_state == "train":
-                min_val, max_val = self.min_pixel_value, self.max_pixel_value if self.global_norm else None, None
+                min_val, max_val = (self.min_pixel_value, self.max_pixel_value) if self.global_norm else (None, None)
                 normalized_LR, normalized_HR, min_val, max_val = normalize_targets(LR, HR, min_pixel_value=min_val, max_pixel_value=max_val)
             else:
                 normalized_LR, _, min_val, max_val = normalize_targets(LR)
@@ -95,8 +95,8 @@ class ModelPipeline:
             try:
                 with autocast_ctx:
                     # Forward pass through the model to get predictions, and calculating the loss with the criterion.
-                    validate_batch_shapes(normalized_LR, normalized_HR, y_pred, self.max_pixels_per_image)
                     y_pred = self.model(normalized_LR)
+                    validate_batch_shapes(normalized_LR, normalized_HR, y_pred, self.max_pixels_per_image)
                 with torch.autocast(device_type=self.device, enabled=False):
                     loss = self.criterion(y_pred.float(), normalized_HR.float())
             except RuntimeError as err:
@@ -116,10 +116,7 @@ class ModelPipeline:
                     f"HR range=({HR.min().item():.4f}, {HR.max().item():.4f}), "
                     f"pred range=({y_pred.min().item():.4f}, {y_pred.max().item():.4f})"
                 )
-
-            y_pred_eval = denormalize_target(
-                y_pred, self.target_mean, self.target_std) if self.normalize_targets else y_pred
-
+            
             y_pred_eval = denormalize_target(y_pred, min_pixel_value=min_val, max_pixel_value=max_val)
             mse = mean_squared_error(y_pred_eval.float(), HR)
             running["Loss"].append(loss.item())
@@ -311,7 +308,7 @@ def main():
                                model_config["BATCH_SIZE"])
 
     # flattens out at about 38 epochs
-    unet_pipeline.train(retrain=False)
+    unet_pipeline.train(retrain=True)
 
     unet_pipeline.test()
 
@@ -323,6 +320,7 @@ def main():
         randomize=False
     ).test
 
+    print(unet_pipeline.max_pixel_value)
     visualiser([unet_pipeline], plotter_instance, visualization_data, model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
 
     print("finished main")

@@ -169,7 +169,7 @@ def normalize_targets(target: torch.Tensor, opt_target: torch.Tensor = None, min
     Returns:
         (target, opt_target, min_pixel_value, max_pixel_value): Normalized pair of tensors (`target == opt_target` if opt_target is not provided) and the min and max pixel values used for normalization
     """
-    opt_target = opt_target or target
+    opt_target = opt_target if opt_target is not None else target
     max_pixel_value = max_pixel_value or max(target.max().item(), opt_target.max().item())
     min_pixel_value = min_pixel_value or min(target.min().item(), opt_target.min().item())
     if max_pixel_value == min_pixel_value:
