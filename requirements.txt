@@ -12,3 +12,4 @@ rioxarray
 xarray
 xarray-spatial
 datashader
+skimage
