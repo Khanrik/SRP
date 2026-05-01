@@ -58,11 +58,6 @@ def get_denmark_data(output_path: Path,
         dataforsyningen.get_data(output_path / "dataforsyningen" / region_name)
 
 def move_to_selected(output_path: Path):
-    lr_file_path = output_path / "selected" / "lr"
-    hr_file_path = output_path / "selected" / "hr"
-    lr_file_path.mkdir(parents=True, exist_ok=True)
-    hr_file_path.mkdir(parents=True, exist_ok=True)
-
     files_to_move = {
         "jutland": [
             "572995_6223578", # aarhus
@@ -71,7 +66,6 @@ def move_to_selected(output_path: Path):
         ],
         "zealand": [
             "720615_6172713", # københavn
-            "684063_6126692", # paradishaven
             "695568_6126692", # faxe kalkbrud
             "710908_6130528", # random sjælland mark
         ],
@@ -83,6 +77,11 @@ def move_to_selected(output_path: Path):
     }
 
     for region, coords_list in files_to_move.items():
+        lr_file_path = output_path / "selected" / "lr" / region
+        hr_file_path = output_path / "selected" / "hr" / region
+        lr_file_path.mkdir(parents=True, exist_ok=True)
+        hr_file_path.mkdir(parents=True, exist_ok=True)
+
         for coords in coords_list:
             lr_file = output_path / "copernicus" / region / f"copernicus_{coords}.tif"
             hr_file = output_path / "dataforsyningen" / region / f"dataforsyningen_{coords}.tif"
