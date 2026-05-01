@@ -30,7 +30,7 @@ data_root = current_dir.parent.parent / "data"  # Contains train/, val/, test/
 checkpoint_dir = current_dir.parent.parent / "checkpoints"
 checkpoint_dir.mkdir(parents=True, exist_ok=True)
 generator_checkpoint_path = checkpoint_dir / "D-SRGAN.pth"
-generator_checkpoint_timestamped_path = checkpoint_dir / f"D-SRGAN_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth"
+generator_checkpoint_timestamped_path = checkpoint_dir / "archives" / f"D-SRGAN_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth"
 
 regions = ["jutland", "funen"]
 data = get_base_dataset(
