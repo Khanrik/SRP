@@ -15,7 +15,7 @@ from typing import Literal, Union
 import time
 from loss_functions import *
 from visualiser import visualiser
-
+from torch.optim.lr_scheduler import StepLR
 
 class ModelPipeline:
     def __init__(
@@ -48,6 +48,9 @@ class ModelPipeline:
         self.plotter = plotter
         self.epochs = model_config["EPOCHS"]
         self.global_norm = model_config["GLOBAL_NORMALIZATION"]
+
+        # scales learning rate down by a factor of 10 every 5 epochs
+        self.scheduler = StepLR(self.optimizer, step_size=5, gamma=0.1) if model_config["DYNAMIC_LR"] else None
 
         # this enables compatibility for older python 3.8.10 i think or maybe linux
         try:
@@ -140,6 +143,10 @@ class ModelPipeline:
                 else:
                     log_shape_and_memory(training_state, epoch, idx, LR, HR, y_pred_eval, self.cuda)
 
+        # Step the learning rate scheduler if it is being used.
+        if training_state == "train" and self.scheduler is not None:
+            self.scheduler.step()
+            print(f"Learning rate after epoch {epoch + 1}: {self.scheduler.get_last_lr()[0]}")
 
         return [np.mean(running[key]) for key in ("Loss", "MAE", "RMSE", "PSNR")]
 
@@ -285,6 +292,7 @@ def main():
 
     model_config = {
         "LEARNING_RATE": 2e-4,
+        "DYNAMIC_LR": True,
         "BATCH_SIZE": 3,
         "EPOCHS": 38,
         "PROFILE_LAYERS_ONCE": False,
