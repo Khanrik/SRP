@@ -16,54 +16,27 @@ class plotter:
     def _imshow(self, ax, tensor, *, interpolation="nearest"):
         ax.imshow(tensor, cmap="gray" if tensor.ndim == 2 else None, interpolation=interpolation)
 
-    def plot_val_and_train_loss(self, train_losses, train_maes, train_rmses, train_psnrs, val_losses, val_maes, val_rmses, val_psnrs):
+    def plot_val_and_train_loss(self, train_metrics, val_metrics):
         """Returns: Self.
         Args:
-            train_losses: List of training losses per epoch.
-            train_maes: List of training MAEs per epoch.
-            train_rmses: List of training RMSEs per epoch.
-            train_psnrs: List of training PSNRs per epoch.
-            val_losses: List of validation losses per epoch.
-            val_maes: List of validation MAEs per epoch.
-            val_rmses: List of validation RMSEs per epoch.
-            val_psnrs: List of validation PSNRs per epoch.
+            train_metrics: A dictionary containing lists of training metrics (e.g., loss, MAE, RMSE, PSNR) for each epoch.
+            val_metrics: A dictionary containing lists of validation metrics (e.g., loss, MAE, RMSE, PSNR) for each epoch.
             display_plots: Whether to display the plots interactively.
         """
         if self.save_plots or self.show_plots:
-            epochs = range(1, len(train_losses) + 1)
-
+            epochs = range(1, len(train_metrics['Loss']) + 1)
+            
             plt.figure(figsize=(12, 8))
-            plt.subplot(2, 2, 1)
-            plt.plot(epochs, train_losses, label='Train Loss')
-            plt.plot(epochs, val_losses, label='Val Loss')
-            plt.xlabel('Epoch')
-            plt.ylabel('Loss')
-            plt.title('Training and Validation Loss')
-            plt.legend()
-
-            plt.subplot(2, 2, 2)
-            plt.plot(epochs, train_maes, label='Train MAE')
-            plt.plot(epochs, val_maes, label='Val MAE')
-            plt.xlabel('Epoch')
-            plt.ylabel('Mean Absolute Error')
-            plt.title('Training and Validation MAE')
-            plt.legend()
-
-            plt.subplot(2, 2, 3)
-            plt.plot(epochs, train_rmses, label='Train RMSE')
-            plt.plot(epochs, val_rmses, label='Val RMSE')
-            plt.xlabel('Epoch')
-            plt.ylabel('Root Mean Squared Error')
-            plt.title('Training and Validation RMSE')
-            plt.legend()
-
-            plt.subplot(2, 2, 4)
-            plt.plot(epochs, train_psnrs, label='Train PSNR')
-            plt.plot(epochs, val_psnrs, label='Val PSNR')
-            plt.xlabel('Epoch')
-            plt.ylabel('Peak Signal-to-Noise Ratio')
-            plt.title('Training and Validation PSNR')
-            plt.legend()
+            for metric_name in train_metrics.keys():
+                train_values = train_metrics[metric_name]
+                val_values = val_metrics[metric_name]
+                plt.subplot(2, 2, list(train_metrics.keys()).index(metric_name) + 1)
+                plt.plot(epochs, train_values, label=f'Train {metric_name}')
+                plt.plot(epochs, val_values, label=f'Val {metric_name}')
+                plt.xlabel('Epoch')
+                plt.ylabel(metric_name)
+                plt.title(f'Training and Validation {metric_name}')
+                plt.legend()
 
             plt.tight_layout()
 
@@ -89,46 +62,6 @@ class plotter:
             raise ValueError(f"Unsupported tensor shape for plotting: {tuple(tensor.shape)}")
         return tensor.numpy()
 
-
-    def plot_training_images(self, LR, HR, prediction, train_loss, train_mae, train_rmse, train_psnr, display_images=False):
-        """Returns: Self.
-        Args:
-            LR: Low-resolution input image tensor.
-            HR: High-resolution target image tensor.
-            prediction: Model's predicted high-resolution image tensor.
-            train_loss: Current training loss.
-            train_mae: Current training mean absolute error.
-            train_rmse: Current training root mean squared error.
-            train_psnr: Current training peak signal-to-noise ratio.
-        """
-        
-        if self.save_plots or self.show_plots:
-            LR_img = self._to_plot_array(LR)
-            HR_img = self._to_plot_array(HR)
-            pred_img = self._to_plot_array(prediction)
-
-            plt.figure(figsize=(15, 5))
-            plt.subplot(1, 3, 1)
-            plt.title('Low-Resolution Input')
-            plt.imshow(LR_img, cmap='gray' if LR_img.ndim == 2 else None)
-            plt.axis('off')
-
-            plt.subplot(1, 3, 2)
-            plt.title('High-Resolution Target')
-            plt.imshow(HR_img, cmap='gray' if HR_img.ndim == 2 else None)
-            plt.axis('off')
-
-            plt.subplot(1, 3, 3)
-            plt.title('Model Prediction')
-            plt.imshow(pred_img, cmap='gray' if pred_img.ndim == 2 else None)
-            plt.axis('off')
-
-            plt.suptitle(f"Train Loss: {sum(train_loss):.4f}, Train MAE: {sum(train_mae):.4f}, Train RMSE: {sum(train_rmse):.4f}, Train PSNR: {sum(train_psnr):.4f}")
-            plt.tight_layout()
-            if self.save_plots: 
-                plt.savefig(os.path.join(self.save_dir, f'training_images_{time.strftime("%Y-%m-%d_%H-%M-%S")}.png'), dpi=300, bbox_inches="tight")
-            if self.show_plots:
-                plt.show()
 
 
     def plot_horizontal_results(self, results_list, interpolation="nearest", max_rows_per_figure=3):
