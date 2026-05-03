@@ -96,49 +96,6 @@ class DatasetInterface(Dataset):
         return  self.lr_transform(self.lr[idx]).float(), \
                 self.hr_transform(self.hr[idx]).float()
 
-def mean_absolute_error(prediction, target) -> float:
-    """Calculates the MAE between the predicted and target tensors
-    Args:
-        prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
-        target: The ground truth target tensor of the same shape as prediction.
-    """
-    mae_tensor = torch.mean(torch.abs(prediction - target))
-    return mae_tensor.item()
-
-def mean_squared_error(prediction, target) -> float:
-    """Calculates the MSE between the predicted and target tensors
-    Args:
-        prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
-        target: The ground truth target tensor of the same shape as prediction.
-    """
-    mse_tensor = torch.mean((prediction - target) ** 2)
-    return mse_tensor.item()
-
-def root_mean_squared_error(prediction, target, mse=None) -> float:
-    """Calculates the RMSE between the predicted and target tensors
-    Args:
-        prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
-        target: The ground truth target tensor of the same shape as prediction.
-    """
-    if mse is None:
-        mse = mean_squared_error(prediction, target)
-    rmse = np.sqrt(mse)
-    return rmse
-
-def peak_signal_to_noise_ratio(prediction, target, max_pixel_value=1, mse=None) -> float:
-    """Calculates the PSNR between the predicted and target tensors
-    Args:
-        prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
-        target: The ground truth target tensor of the same shape as prediction.
-        max_pixel_value: The maximum pixel value in the data. Defaults to 1 for data normalized between 0 and 1.
-        mse: The mean squared error between the predicted and target tensors.
-    """
-    if mse is None:
-        mse = mean_squared_error(prediction, target)
-    if mse == 0:
-        return float('inf')
-    psnr = 10 * np.log10(max_pixel_value**2 / mse)
-    return psnr
 
 def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int) -> tuple[float, float]:
     """Computes the minimum and maximum pixel values across the entire dataset

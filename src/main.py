@@ -16,17 +16,19 @@ import time
 from loss_functions import *
 from visualiser import visualiser
 from torch.optim.lr_scheduler import StepLR
+from metrics import *
+
 
 class ModelPipeline:
     def __init__(
         self,
         model: nn.Module,
         model_config: dict,
-        plotter: plotter, 
-        max_pixels_per_image: int = 1024*1024,
-        target_norm_eps: float = 1e-6
+        plotter: plotter,
+        max_pixels_per_image: int = 1024 * 1024,
+        target_norm_eps: float = 1e-6,
     ):
-        """ Returns: Self. Initializes the ModelPipeline with the model, optimizer, loss function, device, and learning rate.
+        """Returns: Self. Initializes the ModelPipeline with the model, optimizer, loss function, device, and learning rate.
         Args:
             model: The neural network model.
             optimizer: The chosen optimizer for training the model.
@@ -37,7 +39,9 @@ class ModelPipeline:
             profile_layers_once: Whether to profile layers in start of training. (Default True).
         """
         self.model = model
-        self.optimizer = model_config["OPTIMIZER"](model.parameters(), lr=model_config["LEARNING_RATE"])
+        self.optimizer = model_config["OPTIMIZER"](
+            model.parameters(), lr=model_config["LEARNING_RATE"]
+        )
         self.criterion = model_config["CRITERION"]
         self.device = model_config["DEVICE"]
         self.cuda = self.device == "cuda"
@@ -47,6 +51,7 @@ class ModelPipeline:
         self.target_norm_eps = target_norm_eps
         self.plotter = plotter
         self.epochs = model_config["EPOCHS"]
+        self.metrics = model_config["METRICS"]
         self.global_norm = model_config["GLOBAL_NORMALIZATION"]
 
         # scales learning rate down by a factor of 10 every 5 epochs
@@ -54,23 +59,22 @@ class ModelPipeline:
 
         # this enables compatibility for older python 3.8.10 i think or maybe linux
         try:
-            self.scaler = torch.amp.GradScaler(
-                device="cuda", enabled=self.cuda)
+            self.scaler = torch.amp.GradScaler(device="cuda", enabled=self.cuda)
         except (AttributeError, TypeError):
             self.scaler = torch.cuda.amp.GradScaler(enabled=self.cuda)
 
-    def _run_loop(self,
-                  dataloader: DataLoader,
-                  training_state: Literal["train", "val", "test"],
-                  epoch: int,
-                  use_amp: bool,
-                  test_images: list[torch.Tensor] = None):
-        running = {
-            "Loss": [],
-            "MAE": [],
-            "RMSE": [],
-            "PSNR": []
-        }
+    def _run_loop(
+        self,
+        dataloader: DataLoader,
+        training_state: Literal["train", "val", "test"],
+        epoch: int,
+        use_amp: bool,
+        test_images: list[torch.Tensor] = None,
+    ):
+        running = {}
+        for metric_name in self.metrics.keys():
+            running[metric_name] = []
+        running["Loss"] = []
 
         for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True)):
             # creating LR and HR tensors for the batch and moving them to the correct device.
@@ -119,13 +123,13 @@ class ModelPipeline:
                     f"HR range=({HR.min().item():.4f}, {HR.max().item():.4f}), "
                     f"pred range=({y_pred.min().item():.4f}, {y_pred.max().item():.4f})"
                 )
-            
-            y_pred_eval = denormalize_target(y_pred, min_pixel_value=min_val, max_pixel_value=max_val)
-            mse = mean_squared_error(y_pred_eval.float(), HR)
+
+            y_pred_eval = denormalize_target(y_pred, self.target_mean, self.target_std)
+
             running["Loss"].append(loss.item())
-            running["MAE"].append(mean_absolute_error(y_pred_eval.float(), HR))
-            running["RMSE"].append(root_mean_squared_error(y_pred_eval.float(), HR, mse))
-            running["PSNR"].append(peak_signal_to_noise_ratio(y_pred.float(), normalized_HR)) # normalized tensors are used for PSNR
+            for metric_name, metric_fn in self.metrics.items():
+                metric_value = metric_fn(y_pred_eval.float(), HR)
+                running[metric_name].append(metric_value)
 
             if training_state == "train":
                 # Using set_to_none=True to reduce memory usage by freeing gradients immediately after backward pass.
@@ -138,17 +142,17 @@ class ModelPipeline:
                 self.scaler.update()
 
             if idx == 0:
-                if training_state == "test":
-                    self.plotter.plot_training_images(LR=LR, HR=HR, prediction=y_pred_eval,train_loss=running["Loss"], train_mae=running["MAE"], train_rmse=running["RMSE"], train_psnr=running["PSNR"])
-                else:
-                    log_shape_and_memory(training_state, epoch, idx, LR, HR, y_pred_eval, self.cuda)
+                if training_state != "test":
+                    log_shape_and_memory(
+                        training_state, epoch, idx, LR, HR, y_pred_eval, self.cuda
+                    )
 
         # Step the learning rate scheduler if it is being used.
         if training_state == "train" and self.scheduler is not None:
             self.scheduler.step()
             print(f"Learning rate after epoch {epoch + 1}: {self.scheduler.get_last_lr()[0]}")
 
-        return [np.mean(running[key]) for key in ("Loss", "MAE", "RMSE", "PSNR")]
+        return [np.mean(running[key]) for key in ["Loss"] + list(self.metrics.keys())]
 
     def prepare_data(self,
                      train_dataset: DatasetInterface,
@@ -182,101 +186,147 @@ class ModelPipeline:
                 f"Val batches: {num_val_batches}"
             )
 
-    def train(self, retrain=False):
+    def train(self, retrain=False, timer=False):
         """Returns: training and validation losses and difference in height coefficients per epoch for analysis and debugging.
         Args:
 
         """
         if retrain:
-            train_losses = []
-            train_maes = []
-            train_rmses = []
-            train_psnrs = []
-            val_losses = []
-            val_maes = []
-            val_rmses = []
-            val_psnrs = []
+            # initializing metrics
+            timers = {
+                "train": 0.0,
+                "val": 0.0
+            }
+            train_metrics = {}
+            val_metrics = {}
+            train_metrics["Loss"] = []
+            val_metrics["Loss"] = []
+            for metric_name in self.metrics.keys():
+                train_metrics[metric_name] = []
+                val_metrics[metric_name] = []
 
             if self.cuda:
                 # Keeping track of peak memory usage per epoch for debugging OOM errors
                 torch.cuda.reset_peak_memory_stats()
 
+            # looping through epochs
             for epoch in tqdm(range(self.epochs)):
+                time_start = time.time()
                 self.model.train()
-                train_loss, train_mae, train_rmse, train_psnr = self._run_loop(
-                    self.train_dataloader, training_state="train", epoch=epoch, use_amp=self.cuda)
+                curr_metrics = self._run_loop(
+                    self.train_dataloader,
+                    training_state="train",
+                    epoch=epoch,
+                    use_amp=self.cuda,
+                )
+                timers["train"] += time.time() - time_start
 
-                train_losses.append(train_loss)
-                train_maes.append(train_mae)
-                train_rmses.append(train_rmse)
-                train_psnrs.append(train_psnr)
+                print("-" * 30)
+
+                train_metrics["Loss"].append(curr_metrics[0])
+                for i, metric_name in enumerate(self.metrics.keys()):
+                    train_metrics[metric_name].append(curr_metrics[i + 1])
+                    print(
+                        f"Epoch {epoch + 1} Train {metric_name}: {curr_metrics[i + 1]:.4f}"
+                    )
 
                 # Validation loop, i.e. training loop but without backpropagation and with torch.no_grad() to save memory and computations.
+                time_start = time.time()
                 self.model.eval()
-                self.profile_layers_once = False  # profile layers is only relevant for training
+                self.profile_layers_once = (
+                    False  # profile layers is only relevant for training
+                )
                 with torch.no_grad():
-                    val_loss, val_mae, val_rmse, val_psnr = self._run_loop(
-                        self.val_dataloader, training_state="val", epoch=epoch, use_amp=self.cuda)
+                    val_metrics = self._run_loop(
+                        self.val_dataloader,
+                        training_state="val",
+                        epoch=epoch,
+                        use_amp=self.cuda,
+                    )
+                timers["val"] += time.time() - time_start
 
-                val_losses.append(val_loss)
-                val_maes.append(val_mae)
-                val_rmses.append(val_rmse)
-                val_psnrs.append(val_psnr)
-
-                print("-" * 30)
-                print(f"Training Loss EPOCH {epoch + 1}: {train_loss:.4f}")
-                print(f"Training MAE EPOCH {epoch + 1}: {train_mae:.4f}")
-                print(f"Training RMSE EPOCH {epoch + 1}: {train_rmse:.4f}")
-                print(f"Training PSNR EPOCH {epoch + 1}: {train_psnr:.4f}")
                 print("\n")
-                print(f"Validation Loss EPOCH {epoch + 1}: {val_loss:.4f}")
-                print(f"Validation MAE EPOCH {epoch + 1}: {val_mae:.4f}")
-                print(f"Validation RMSE EPOCH {epoch + 1}: {val_rmse:.4f}")
-                print(f"Validation PSNR EPOCH {epoch + 1}: {val_psnr:.4f}")
+
+                val_metrics["Loss"].append(val_metrics[0])
+                for i, metric_name in enumerate(self.metrics.keys()):
+                    val_metrics[metric_name].append(val_metrics[i + 1])
+                    print(
+                        f"Epoch {epoch + 1} Val {metric_name}: {val_metrics[i + 1]:.4f}"
+                    )
+
                 print("-" * 30)
                 # stopping training if metrics are the same for 10 epochs in a row
-                if len(train_losses) > 10 and all(abs(train_losses[-i] - train_losses[-i-1]) < train_losses[-i]*0.2 for i in range(1, 10)):
-                    print(f"Training loss has not improved for 10 epochs. Stopping training at epoch {epoch + 1}.")
+                if len(train_metrics["Loss"]) > 10 and all(
+                    abs(train_metrics["Loss"][-i] - train_metrics["Loss"][-i - 1])
+                    < train_metrics["Loss"][-i] * 0.2
+                    for i in range(1, 10)
+                ):
+                    print(
+                        f"Training loss has not improved for 10 epochs. Stopping training at epoch {epoch + 1}."
+                    )
                     break
 
             # Saving the model for the current run and timestamping it for archival purposes
-            path = 'checkpoints'
+            path = "checkpoints"
             os.makedirs(path, exist_ok=True)
-            torch.save(self.model.state_dict(),
-                    os.path.join(path, f'{self.model.__class__.__name__}.pth'))
-            
-            archives=os.path.join(path,'archives')
+            torch.save(
+                self.model.state_dict(),
+                os.path.join(path, f"{self.model.__class__.__name__}.pth"),
+            )
+
+            archives = os.path.join(path, "archives")
             os.makedirs(archives, exist_ok=True)
 
-            torch.save(self.model.state_dict(),
-                    os.path.join(archives, f'{self.model.__class__.__name__}_{time.strftime("%Y-%m-%d_%H-%M-%S")}.pth'))
+            torch.save(
+                self.model.state_dict(),
+                os.path.join(
+                    archives,
+                    f"{self.model.__class__.__name__}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth",
+                ),
+            )
 
-            self.plotter.plot_val_and_train_loss(train_losses, train_maes, train_rmses,
-                                                train_psnrs, val_losses, val_maes, val_rmses, val_psnrs)
-            
+            self.plotter.plot_val_and_train_loss(train_metrics, val_metrics)
+
         else:
-            if not (Path(__file__).resolve().parent.parent / "checkpoints" / f"{self.model.__class__.__name__}.pth").exists():
-                print(f"No existing model weights found for {self.model.__class__.__name__}. Cannot skip retraining.")
+            if not (
+                Path(__file__).resolve().parent.parent
+                / "checkpoints"
+                / f"{self.model.__class__.__name__}.pth"
+            ).exists():
+                print(
+                    f"No existing model weights found for {self.model.__class__.__name__}. Cannot skip retraining."
+                )
                 self.train(retrain=True)
                 return
             print("Skipping retraining and using existing model weights.")
-            model_pth = Path(__file__).resolve().parent.parent / "checkpoints" / f"{self.model.__class__.__name__}.pth"
-            self.model.load_state_dict(torch.load(model_pth, map_location=torch.device(self.device), weights_only=True))
+            model_pth = (
+                Path(__file__).resolve().parent.parent
+                / "checkpoints"
+                / f"{self.model.__class__.__name__}.pth"
+            )
+            self.model.load_state_dict(
+                torch.load(
+                    model_pth, map_location=torch.device(self.device), weights_only=True
+                )
+            )      
             
-        
-        
+        if timer:
+            print(f"Total training time: {timers['train']:.2f} seconds. Average time per epoch: {timers['train']/len(train_losses):.2f} seconds.")
+            print(f"Total validation time: {timers['val']:.2f} seconds. Average time per epoch: {timers['val']/len(val_losses):.2f} seconds.")
+            return timers
+
     def test(self):
-        """Returns: test loss and difference coefficient for the test dataset.
-        """
+        """Returns: test loss and difference coefficient for the test dataset."""
         self.model.eval()
         with torch.no_grad():
-            test_loss, test_mae, test_rmse, test_psnr = self._run_loop(self.test_dataloader, training_state="test", epoch=0, use_amp=False)
+            test_metrics = self._run_loop(
+                self.test_dataloader, training_state="test", epoch=0, use_amp=False
+            )
 
-        print(f"Test Loss: {test_loss:.4f}")
-        print(f"Test MAE: {test_mae:.4f}")
-        print(f"Test RMSE: {test_rmse:.4f}")
-        print(f"Test PSNR: {test_psnr:.4f}")
-        return 
+        print(f"Test loss: {test_metrics[0]:.4f}")
+        for i, metric_name in enumerate(self.metrics.keys()):
+            print(f"Test {metric_name}: {test_metrics[i + 1]:.4f}")
+        return
 
 
 def main():
@@ -284,54 +334,64 @@ def main():
     data_root = current_dir.parent / "data"
     regions = ["jutland", "funen"]
     data = get_base_dataset(
-        lr_data_dir_list=[data_root / "copernicus" /
-                          region for region in regions],
-        hr_data_dir_list=[data_root / "dataforsyningen" /
-                          region for region in regions],
+        lr_data_dir_list=[data_root / "copernicus" / region for region in regions],
+        hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
     )
+
+    metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
 
     model_config = {
         "LEARNING_RATE": 2e-4,
         "DYNAMIC_LR": True,
         "BATCH_SIZE": 3,
-        "EPOCHS": 38,
+        "EPOCHS": 2,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
         "CRITERION": GradLoss(),
+        "METRICS": metrics,
         "GLOBAL_NORMALIZATION": True
     }
-    plotter_instance = plotter(save_dir=current_dir.parent / "checkpoints" / "plots", show_plots=True, save_plots=True)
-
-    unet = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    unet_pipeline = ModelPipeline(
-        unet,
-        model_config,
-        plotter=plotter_instance
+    plotter_instance = plotter(
+        save_dir=current_dir.parent / "checkpoints" / "plots",
+        show_plots=True,
+        save_plots=True,
     )
 
-    unet_pipeline.prepare_data(data.train,
-                               data.val,
-                               data.test,
-                               model_config["BATCH_SIZE"])
+    unet = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
+    unet_pipeline = ModelPipeline(unet, model_config, plotter=plotter_instance)
+
+    unet_pipeline.prepare_data(
+        data.train, data.val, data.test, model_config["BATCH_SIZE"]
+    )
 
     # flattens out at about 38 epochs
-    unet_pipeline.train(retrain=True)
+    train_times = unet_pipeline.train(retrain=True, timer=True)
 
+    start_time = time.time()
     unet_pipeline.test()
+    test_time = time.time() - start_time
+    print(f"Total testing time: {test_time:.2f} seconds.")
+    print(f"Total model runtime: {train_times['train'] + train_times['val'] + test_time:.2f} seconds for {unet_pipeline.epochs} epochs of training.")
 
     regions = ["jutland", "zealand", "bornholm"]
     visualization_data = get_base_dataset(
         lr_data_dir_list=[data_root / "selected" / "lr" / region for region in regions],
         hr_data_dir_list=[data_root / "selected" / "hr" / region for region in regions],
         division=DataDivision(train=0.0, val=0.0, test=1.0),
-        randomize=False
+        randomize=False,
     ).test
 
-    print(unet_pipeline.max_pixel_value)
-    visualiser([unet_pipeline], plotter_instance, visualization_data, model_config["DEVICE"], max_pixel_value=unet_pipeline.max_pixel_value)
+    visualiser(
+        [unet_pipeline],
+        plotter_instance,
+        visualization_data,
+        model_config["DEVICE"],
+        metrics,
+    )
 
     print("finished main")
+
 
 if __name__ == "__main__":
     main()
