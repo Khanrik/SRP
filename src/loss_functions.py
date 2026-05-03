@@ -1,8 +1,10 @@
+import torch
 import torch.nn as nn
-#import torch
-#from torch.nn.functional import conv2d
+import torch.nn.functional as F
+from torch import Tensor
+from typing import List, Optional, Tuple, Union
+from pytorch_msssim import ssim as SSIM  # type: ignore
 
-# model
 class SmoothGradLoss(nn.Module):
     def __init__(self, beta=1.0, lambda_grad=0.2):
         super().__init__()
@@ -16,13 +18,13 @@ class SmoothGradLoss(nn.Module):
         self.lambda_grad = lambda_grad
 
     def forward(self, pred, target):
-        """Returns: Loss value
+        """Returns: Loss value.
         Args:
             pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
             target: The ground truth target tensor of the same shape as pred.
         """
         pixel_loss = self.pixel(pred, target)
-    
+
         pred_dx = pred[:, :, :, 1:] - pred[:, :, :, :-1]
         pred_dy = pred[:, :, 1:, :] - pred[:, :, :-1, :]
         tgt_dx = target[:, :, :, 1:] - target[:, :, :, :-1]
@@ -30,9 +32,10 @@ class SmoothGradLoss(nn.Module):
 
         grad_loss = self.grad(pred_dx, tgt_dx) + self.grad(pred_dy, tgt_dy)
         return pixel_loss + self.lambda_grad * grad_loss
-    
+
+
 class GradLoss(nn.Module):
-    def __init__(self, ):
+    def __init__(self):
         super().__init__()
         """Returns: Self. Custom loss func.
         Args: None.
@@ -40,12 +43,11 @@ class GradLoss(nn.Module):
         self.grad = nn.L1Loss()
 
     def forward(self, pred, target):
-        """Returns: Loss value
+        """Returns: Loss value.
         Args:
             pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
             target: The ground truth target tensor of the same shape as pred.
         """
-    
         pred_dx = pred[:, :, :, 1:] - pred[:, :, :, :-1]
         pred_dy = pred[:, :, 1:, :] - pred[:, :, :-1, :]
         tgt_dx = target[:, :, :, 1:] - target[:, :, :, :-1]
@@ -53,74 +55,114 @@ class GradLoss(nn.Module):
 
         grad_loss = self.grad(pred_dx, tgt_dx) + self.grad(pred_dy, tgt_dy)
         return grad_loss
-    
-# class SSIM(nn.Module):
-#     def __init__(self, window_size=11, sigma=1.5):
-#         super().__init__()
-#         """Returns: Self. Custom loss func.
-#         Args:
-#             window_size: The size of the Gaussian window used for computing local statistics. (Default 11, typically an odd number).
-#             sigma: The standard deviation of the Gaussian window, controls the amount of smoothing applied to the local statistics. (Default 1.5).
-#         """
-#         self.window_size = window_size
-#         self.sigma = sigma
 
-#     def forward(self, pred, target):
-#         """Returns: SSIM value
-#         Args:
-#             pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
-#             target: The ground truth target tensor of the same shape as pred.
-#         """
-#         pred = pred.float()
-#         target = target.float()
 
-#         _, channels, height, width = pred.shape
-#         window_size = min(self.window_size, height, width)
-#         if window_size % 2 == 0:
-#             window_size -= 1
-#         if window_size < 3:
-#             window_size = 3
+class CombinedGradL1Loss(nn.Module):
+    def __init__(self, lambda_grad=0.5, lambda_l1=1.0):
+        super().__init__()
+        """Returns: Self. Combined L1 + Gradient loss to prevent output explosion.
+        Args:
+            lambda_grad: Weight for gradient loss component.
+            lambda_l1: Weight for L1 pixel loss component.
+        """
+        self.grad_loss = GradLoss()
+        self.l1_loss = nn.L1Loss()
+        self.lambda_grad = lambda_grad
+        self.lambda_l1 = lambda_l1
 
-#         # Using the current data range for SSIM calculation.
-#         data_min = torch.min(torch.stack([pred.min(), target.min()]))
-#         data_max = torch.max(torch.stack([pred.max(), target.max()]))
-#         data_range = torch.clamp(data_max - data_min, min=1e-6)
-#         C1 = (0.01 * data_range) ** 2
-#         C2 = (0.03 * data_range) ** 2
-#         eps = 1e-6
+    def forward(self, pred, target):
+        """Returns: Combined loss value.
+        Args:
+            pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
+            target: The ground truth target tensor of the same shape as pred.
+        """
+        grad_loss = self.grad_loss(pred, target)
+        l1_loss = self.l1_loss(pred, target)
+        return self.lambda_l1 * l1_loss + self.lambda_grad * grad_loss
 
-#         # Use a Gaussian blur to compute local means and variances for SSIM.
-#         kernel = self.create_gaussian_kernel(window_size, self.sigma, channels).to(pred.device, dtype=pred.dtype)
-#         mu_pred = self.gaussian_blur(pred, kernel)
-#         mu_target = self.gaussian_blur(target, kernel)
 
-#         sigma_pred = self.gaussian_blur(pred * pred, kernel) - mu_pred ** 2
-#         sigma_target = self.gaussian_blur(target * target, kernel) - mu_target ** 2
-#         sigma_cross = self.gaussian_blur(pred * target, kernel) - mu_pred * mu_target
+class SSIMLoss(nn.Module):
+    def __init__(self, window_size=11, sigma=1.5, data_range=1.0, k1=0.01, k2=0.03):
+        super().__init__()
+        """Returns: Self. Differentiable SSIM loss.
+        Args:
+            window_size: Gaussian window size used for local statistics.
+            sigma: Standard deviation for the Gaussian window.
+            data_range: Expected dynamic range of the input tensors.
+            k1: SSIM stability constant for the luminance term.
+            k2: SSIM stability constant for the contrast/structure term.
+        """
+        self.window_size = window_size
+        self.sigma = sigma
+        self.data_range = data_range
+        self.k1 = k1
+        self.k2 = k2
 
-#         # Ensure variances stay non-negative and denominators stay well-conditioned.
-#         sigma_pred = torch.clamp(sigma_pred, min=0)
-#         sigma_target = torch.clamp(sigma_target, min=0)
-#         ssim_numerator = (2 * mu_pred * mu_target + C1) * (2 * sigma_cross + C2)
-#         ssim_denominator = (mu_pred ** 2 + mu_target ** 2 + C1) * (sigma_pred + sigma_target + C2)
-#         ssim_map = ssim_numerator / (ssim_denominator + eps)
-        
-#         return 1 - ssim_map.mean()
+    # def _create_gaussian_window(self, channels, window_size, device, dtype):
+    #     coords = torch.arange(window_size, device=device, dtype=dtype) - window_size // 2
+    #     gauss_1d = torch.exp(-(coords ** 2) / (2 * self.sigma ** 2))
+    #     gauss_1d = gauss_1d / gauss_1d.sum()
+    #     window_2d = torch.outer(gauss_1d, gauss_1d)
+    #     window_2d = window_2d.unsqueeze(0).unsqueeze(0)
+    #     return window_2d.repeat(channels, 1, 1, 1)
 
-#     def gaussian_blur(self, x, kernel):
-#         padding = kernel.shape[-1] // 2
-#         return conv2d(x, kernel, padding=padding, groups=x.shape[1])
+    # def forward(self, pred, target):
+    #     """Returns: 1 - SSIM score.
+    #     Args:
+    #         pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
+    #         target: The ground truth target tensor of the same shape as pred.
+    #     """
+    #     if pred.ndim == 3:
+    #         pred = pred.unsqueeze(0)
+    #     if target.ndim == 3:
+    #         target = target.unsqueeze(0)
 
-#     def create_gaussian_kernel(self, kernel_size, sigma, channels):
-#         coords = torch.arange(kernel_size).float() - kernel_size // 2
-#         grid = coords.repeat(kernel_size).view(kernel_size, kernel_size)
-#         x_grid = grid
-#         y_grid = grid.t()
+    #     pred = torch.nan_to_num(pred.float(), nan=0.0, posinf=1.0, neginf=0.0)
+    #     target = torch.nan_to_num(target.float(), nan=0.0, posinf=1.0, neginf=0.0)
 
-#         kernel = torch.exp(-(x_grid**2 + y_grid**2) / (2 * sigma**2))
-#         kernel = kernel / kernel.sum()
+    #     _, channels, height, width = pred.shape
+    #     window_size = min(self.window_size, height, width)
+    #     if window_size % 2 == 0:
+    #         window_size -= 1
+    #     if window_size < 3:
+    #         raise ValueError("SSIMLoss requires input images of at least 3x3 pixels.")
 
-#         kernel = kernel.view(1, 1, kernel_size, kernel_size)
-#         kernel = kernel.repeat(channels, 1, 1, 1)
+    #     padding = window_size // 2
+    #     window = self._create_gaussian_window(channels, window_size, pred.device, pred.dtype)
 
-#         return kernel
+    #     pred_padded = F.pad(pred, (padding, padding, padding, padding), mode="reflect")
+    #     target_padded = F.pad(target, (padding, padding, padding, padding), mode="reflect")
+
+    #     mu_pred = F.conv2d(pred_padded, window, groups=channels)
+    #     mu_target = F.conv2d(target_padded, window, groups=channels)
+
+    #     mu_pred_sq = mu_pred ** 2
+    #     mu_target_sq = mu_target ** 2
+    #     mu_pred_target = mu_pred * mu_target
+
+    #     sigma_pred_sq = F.conv2d(pred_padded * pred_padded, window, groups=channels) - mu_pred_sq
+    #     sigma_target_sq = F.conv2d(target_padded * target_padded, window, groups=channels) - mu_target_sq
+    #     sigma_pred_target = F.conv2d(pred_padded * target_padded, window, groups=channels) - mu_pred_target
+
+    #     sigma_pred_sq = torch.clamp(sigma_pred_sq, min=0.0)
+    #     sigma_target_sq = torch.clamp(sigma_target_sq, min=0.0)
+
+    #     c1 = (self.k1 * self.data_range) ** 2
+    #     c2 = (self.k2 * self.data_range) ** 2
+
+    #     numerator = (2 * mu_pred_target + c1) * (2 * sigma_pred_target + c2)
+    #     denominator = (mu_pred_sq + mu_target_sq + c1) * (sigma_pred_sq + sigma_target_sq + c2)
+    #     denominator = denominator.clamp_min(1e-12)
+    #     ssim_map = numerator / denominator
+    #     ssim_map = torch.nan_to_num(ssim_map, nan=0.0, posinf=1.0, neginf=-1.0)
+
+    #     return 1 - ssim_map.mean()
+    def forward(self, pred, target):
+        """Returns: 1 - SSIM score.
+        Args:
+            pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
+            target: The ground truth target tensor of the same shape as pred.
+        """
+
+        ssim_score = SSIM(pred, target, data_range=self.data_range, win_size=self.window_size, win_sigma=self.sigma,size_average=True)
+        return 1 - ssim_score
