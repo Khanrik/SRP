@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import torch
 import matplotlib.pyplot as plt
-import numpy as np
 import torch.nn as nn
 from contextlib import nullcontext
 
@@ -11,7 +10,6 @@ from dataclasses import dataclass
 from torchvision import transforms
 from PIL import Image
 from torch.utils.data.dataset import Dataset
-from torch.utils.data import DataLoader
 from typing import TYPE_CHECKING
 from tqdm import tqdm
 
@@ -96,42 +94,6 @@ class DatasetInterface(Dataset):
         return  self.lr_transform(self.lr[idx]).float(), \
                 self.hr_transform(self.hr[idx]).float()
 
-
-def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int) -> tuple[float, float]:
-    """Computes the minimum and maximum pixel values across the entire dataset
-    
-    Returns:
-        (min_pixel_value, max_pixel_value): The minimum and maximum pixel values found in the dataset
-    """
-    loader = DataLoader(dataset, batch_size=batch_size)
-    min_pixel_value = float('inf')
-    max_pixel_value = float('-inf')
-    for lr, hr in tqdm(loader, desc="Computing extremal pixel values"):
-        relative_min_pixel_value = min(lr.min().item(), hr.min().item())
-        relative_max_pixel_value = max(lr.max().item(), hr.max().item())
-        min_pixel_value = min(min_pixel_value, relative_min_pixel_value)
-        max_pixel_value = max(max_pixel_value, relative_max_pixel_value)
-
-    return min_pixel_value, max_pixel_value
-
-def normalize_targets(target: torch.Tensor, opt_target: torch.Tensor = None, min_pixel_value: float = None, max_pixel_value: float = None) -> tuple[torch.Tensor, torch.Tensor, float, float]:
-    """Normalizes a tensor or pair of tensors between 0 and 1
-
-    Args:
-        target: The target tensor to normalize
-        opt_target: An optional tensor to pair with the target. Not including opt_target will normalize target based on its own min and max values.
-        min_pixel_value: The minimum pixel value in the dataset. If None, it will use the relative min value between target and opt_target.
-        max_pixel_value: The maximum pixel value in the dataset. If None, it will use the relative max value between target and opt_target.
-
-    Returns:
-        (target, opt_target, min_pixel_value, max_pixel_value): Normalized pair of tensors (`target == opt_target` if opt_target is not provided) and the min and max pixel values used for normalization
-    """
-    opt_target = opt_target if opt_target is not None else target
-    max_pixel_value = max_pixel_value or max(target.max().item(), opt_target.max().item())
-    min_pixel_value = min_pixel_value or min(target.min().item(), opt_target.min().item())
-    if max_pixel_value == min_pixel_value:
-        return target, opt_target, min_pixel_value, max_pixel_value
-    return (target - min_pixel_value) / (max_pixel_value - min_pixel_value), (opt_target - min_pixel_value) / (max_pixel_value - min_pixel_value), min_pixel_value, max_pixel_value
 
 def denormalize_target(target: torch.Tensor, min_pixel_value: float, max_pixel_value: float) -> torch.Tensor:
     """
@@ -260,16 +222,21 @@ def profile_layer_activations(model: nn.Module,
     plt.show()
     profile_layers_once = False
 
-def prepare_dataloader(dataset, batch_size, pin_memory, num_workers=0, shuffle_bool=True):
-    # This function initializes the iterable over the datasets for training, validation, and testing 
-    # with the specified batch size and the Trainer's num_workers and pin_memory settings.
-    dataloader = DataLoader(
-        dataset=dataset,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        batch_size=batch_size,
-        persistent_workers=False,
-        shuffle=shuffle_bool,
-    )
-    
-    return dataloader
+def normalize_targets(target: torch.Tensor, opt_target: torch.Tensor = None, min_pixel_value: float = None, max_pixel_value: float = None) -> tuple[torch.Tensor, torch.Tensor, float, float]:
+    """Normalizes a tensor or pair of tensors between 0 and 1
+
+    Args:
+        target: The target tensor to normalize
+        opt_target: An optional tensor to pair with the target. Not including opt_target will normalize target based on its own min and max values.
+        min_pixel_value: The minimum pixel value in the dataset. If None, it will use the relative min value between target and opt_target.
+        max_pixel_value: The maximum pixel value in the dataset. If None, it will use the relative max value between target and opt_target.
+
+    Returns:
+        (target, opt_target, min_pixel_value, max_pixel_value): Normalized pair of tensors (`target == opt_target` if opt_target is not provided) and the min and max pixel values used for normalization
+    """
+    opt_target = opt_target if opt_target is not None else target
+    max_pixel_value = max_pixel_value or max(target.max().item(), opt_target.max().item())
+    min_pixel_value = min_pixel_value or min(target.min().item(), opt_target.min().item())
+    if max_pixel_value == min_pixel_value:
+        return target, opt_target, min_pixel_value, max_pixel_value
+    return (target - min_pixel_value) / (max_pixel_value - min_pixel_value), (opt_target - min_pixel_value) / (max_pixel_value - min_pixel_value), min_pixel_value, max_pixel_value

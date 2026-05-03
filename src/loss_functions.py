@@ -1,6 +1,6 @@
-import torch
 import torch.nn as nn
-from torch.nn.functional import conv2d
+#import torch
+#from torch.nn.functional import conv2d
 
 # model
 class SmoothGradLoss(nn.Module):
