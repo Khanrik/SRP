@@ -1,4 +1,6 @@
-from helpers import *
+from helpers import results, normalize_targets, denormalize_target
+import torch
+from tqdm import tqdm
 
 def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device, metrics):
     """Returns: None. Tests multiple model pipelines and prints their test losses and difference coefficients for comparison.
@@ -21,14 +23,8 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
             metric_items.append((metric_name, metric_value))
         return metric_items
 
-    images = prepare_dataloader(
-        selected_test_images,
-        batch_size=1,
-        pin_memory=device == "cuda",
-        shuffle_bool=False
-    )
     test_result=[]
-    for LR, HR in tqdm(images, position=0, leave=True):
+    for LR, HR in tqdm(selected_test_images, position=0, leave=True):
         image_result = []
         # creating LR and HR tensors for the batch and moving them to the correct device.
         LR = LR.float().to(device)
@@ -70,7 +66,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
                             
             pred_results=results(
                 image=y_pred_eval[0],
-                name=pipeline.model.__class__.__name__,
+                name=f"{pipeline.model.__class__.__name__} with {pipeline.criterion.__class__.__name__}",
                 metrics=_metric_items(y_pred_eval, HR),
             )
             image_result.append(pred_results)

@@ -1,22 +1,22 @@
 import os
+import copy
 import torch
 import torch.nn as nn
 import numpy as np
 from contextlib import nullcontext
 from torch import optim
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 from pathlib import Path
-from unet import *
-from helpers import *
+from unet import UNet
+from helpers import *  # noqa: F403
 from plotter import plotter
 from data_distributor import get_base_dataset
-from typing import Literal, Union
+from typing import Literal
 import time
-from loss_functions import *
+from loss_functions import *  # noqa: F403
 from visualiser import visualiser
 from torch.optim.lr_scheduler import StepLR
-from metrics import *
+from metrics import *  # noqa: F403
 
 
 class ModelPipeline:
@@ -27,22 +27,23 @@ class ModelPipeline:
         plotter: plotter,
         max_pixels_per_image: int = 1024 * 1024,
         target_norm_eps: float = 1e-6,
+        criterion: nn.Module = GradLoss(),
     ):
         """Returns: Self. Initializes the ModelPipeline with the model, optimizer, loss function, device, and learning rate.
         Args:
             model: The neural network model.
-            optimizer: The chosen optimizer for training the model.
-            criterion: The chosen loss function.
-            device: The device to run the model on, eg. "cuda" or "cpu".
-            learning_rate: The learning rate for the optimizer. (Default 3e-4).
-            max_pixels_per_image: Max num of pixels allowed in input/target images to avoid OOM errors. (Default 1024x1024).
-            profile_layers_once: Whether to profile layers in start of training. (Default True).
+            model_config: A dictionary containing model configuration parameters such as learning rate, device, optimizer, etc.
+            plotter: An instance of the plotter class for visualization.
+            max_pixels_per_image: An integer specifying the maximum number of pixels per image to prevent OOM errors.
+            target_norm_eps: A small float value to prevent division by zero during normalization of targets.
+            criterion: The loss function to be used for training the model. Defaults to GradLoss.
         """
-        self.model = model
+        self.model = copy.deepcopy(model)
+        self.model = self.model.to(model_config["DEVICE"])
         self.optimizer = model_config["OPTIMIZER"](
-            model.parameters(), lr=model_config["LEARNING_RATE"]
+            self.model.parameters(), lr=model_config["LEARNING_RATE"]
         )
-        self.criterion = model_config["CRITERION"]
+        self.criterion = criterion
         self.device = model_config["DEVICE"]
         self.cuda = self.device == "cuda"
         self.num_workers = 0
@@ -53,6 +54,12 @@ class ModelPipeline:
         self.epochs = model_config["EPOCHS"]
         self.metrics = model_config["METRICS"]
         self.global_norm = model_config["GLOBAL_NORMALIZATION"]
+        self.timer = model_config["TIMER"]
+        self.train_dataloader = model_config["data"][0]
+        self.val_dataloader = model_config["data"][1]
+        self.test_dataloader = model_config["data"][2]
+        self.min_pixel_value = model_config["data"][3]
+        self.max_pixel_value = model_config["data"][4]
 
         # scales learning rate down by a factor of 10 every 5 epochs
         self.scheduler = StepLR(self.optimizer, step_size=5, gamma=0.1) if model_config["DYNAMIC_LR"] else None
@@ -65,7 +72,7 @@ class ModelPipeline:
 
     def _run_loop(
         self,
-        dataloader: DataLoader,
+        dataloader,
         training_state: Literal["train", "val", "test"],
         epoch: int,
         use_amp: bool,
@@ -154,39 +161,9 @@ class ModelPipeline:
 
         return [np.mean(running[key]) for key in ["Loss"] + list(self.metrics.keys())]
 
-    def prepare_data(self,
-                     train_dataset: DatasetInterface,
-                     val_dataset: DatasetInterface,
-                     test_dataset: DatasetInterface,
-                     batch_size: int):
-        self.train_dataloader, self.val_dataloader, self.test_dataloader = \
-            prepare_dataloader(train_dataset, batch_size, self.cuda), \
-            prepare_dataloader(val_dataset, batch_size, self.cuda), \
-            prepare_dataloader(test_dataset, batch_size, self.cuda)
-        
-        self.min_pixel_value, self.max_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size)
+    
 
-        if self.train_dataloader is None or self.val_dataloader is None or self.test_dataloader is None:
-            raise ValueError(
-                f"Dataloaders not properly initialized. Train samples: {len(train_dataset)}, "
-                f"Val samples: {len(val_dataset)}, Test samples: {len(test_dataset)}"
-            )
-
-        if len(train_dataset) == 0 or len(val_dataset) == 0 or len(test_dataset) == 0:
-            raise ValueError(
-                f"Empty dataset split detected. Train: {len(train_dataset)}, "
-                f"Val: {len(val_dataset)}, Test: {len(test_dataset)}"
-            )
-
-        num_train_batches = len(self.train_dataloader)
-        num_val_batches = len(self.val_dataloader)
-        if num_train_batches == 0 or num_val_batches == 0:
-            raise ValueError(
-                f"Empty dataloader detected. Train batches: {num_train_batches}, "
-                f"Val batches: {num_val_batches}"
-            )
-
-    def train(self, retrain=False, timer=False):
+    def train(self, retrain=False, pth_path_name=None):
         """Returns: training and validation losses and difference in height coefficients per epoch for analysis and debugging.
         Args:
 
@@ -258,7 +235,7 @@ class ModelPipeline:
                 # stopping training if metrics are the same for 10 epochs in a row
                 if len(train_metrics["Loss"]) > 10 and all(
                     abs(train_metrics["Loss"][-i] - train_metrics["Loss"][-i - 1])
-                    < train_metrics["Loss"][-i] * 0.2
+                    < train_metrics["Loss"][-i] * 0.1
                     for i in range(1, 10)
                 ):
                     print(
@@ -271,7 +248,7 @@ class ModelPipeline:
             os.makedirs(path, exist_ok=True)
             torch.save(
                 self.model.state_dict(),
-                os.path.join(path, f"{self.model.__class__.__name__}.pth"),
+                os.path.join(path, f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}.pth"),
             )
 
             archives = os.path.join(path, "archives")
@@ -281,42 +258,53 @@ class ModelPipeline:
                 self.model.state_dict(),
                 os.path.join(
                     archives,
-                    f"{self.model.__class__.__name__}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth",
+                    f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth",
                 ),
             )
 
             self.plotter.plot_val_and_train_loss(train_metrics, val_metrics)
+            if self.timer:
+                print(f"Total training time: {timers['train']:.2f} seconds. Average time per epoch: {timers['train']/len(train_metrics['Loss']):.2f} seconds.")
+                print(f"Total validation time: {timers['val']:.2f} seconds. Average time per epoch: {timers['val']/len(val_metrics['Loss']):.2f} seconds.")
+
 
         else:
             if not (
                 Path(__file__).resolve().parent.parent
                 / "checkpoints"
-                / f"{self.model.__class__.__name__}.pth"
+                / f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}.pth"
             ).exists():
                 print(
-                    f"No existing model weights found for {self.model.__class__.__name__}. Cannot skip retraining."
+                    f"No existing model weights found for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__}. Cannot skip retraining."
                 )
                 self.train(retrain=True)
                 return
             print("Skipping retraining and using existing model weights.")
-            model_pth = (
-                Path(__file__).resolve().parent.parent
-                / "checkpoints"
-                / f"{self.model.__class__.__name__}.pth"
-            )
+            if pth_path_name is not None:
+                print(f"Loading model weights from specified path: {pth_path_name}")
+                model_pth = (
+                    Path(__file__).resolve().parent.parent
+                    / "checkpoints"
+                    / f"{pth_path_name}.pth"
+                )
+            else:
+                model_pth = (
+                    Path(__file__).resolve().parent.parent
+                    / "checkpoints"
+                    / f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}.pth"
+                )
             self.model.load_state_dict(
                 torch.load(
                     model_pth, map_location=torch.device(self.device), weights_only=True
                 )
             )      
             
-        if timer:
-            print(f"Total training time: {timers['train']:.2f} seconds. Average time per epoch: {timers['train']/len(train_losses):.2f} seconds.")
-            print(f"Total validation time: {timers['val']:.2f} seconds. Average time per epoch: {timers['val']/len(val_losses):.2f} seconds.")
-            return timers
+        
 
     def test(self):
         """Returns: test loss and difference coefficient for the test dataset."""
+        
+        start_time = time.time()
         self.model.eval()
         with torch.no_grad():
             test_metrics = self._run_loop(
@@ -326,31 +314,29 @@ class ModelPipeline:
         print(f"Test loss: {test_metrics[0]:.4f}")
         for i, metric_name in enumerate(self.metrics.keys()):
             print(f"Test {metric_name}: {test_metrics[i + 1]:.4f}")
+            
+        if self.timer:
+            test_time = time.time() - start_time
+            print(f"Total testing time: {test_time:.2f} seconds.")
         return
 
 
 def main():
     current_dir = Path(__file__).resolve().parent
-    data_root = current_dir.parent / "data"
-    regions = ["jutland", "funen"]
-    data = get_base_dataset(
-        lr_data_dir_list=[data_root / "copernicus" / region for region in regions],
-        hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
-    )
 
+    # Initializing hyperparameters, metrics and configurations for the model pipeline
     metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
-
     model_config = {
         "LEARNING_RATE": 2e-4,
         "DYNAMIC_LR": True,
         "BATCH_SIZE": 3,
-        "EPOCHS": 2,
+        "EPOCHS": 3,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
-        "CRITERION": GradLoss(),
         "METRICS": metrics,
-        "GLOBAL_NORMALIZATION": True
+        "GLOBAL_NORMALIZATION": True,
+        "TIMER": True
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
@@ -358,39 +344,48 @@ def main():
         save_plots=True,
     )
 
-    unet = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    unet_pipeline = ModelPipeline(unet, model_config, plotter=plotter_instance)
-
-    unet_pipeline.prepare_data(
-        data.train, data.val, data.test, model_config["BATCH_SIZE"]
+    # Initializing data
+    data_root = current_dir.parent / "data"
+    regions = ["jutland", "funen"]
+    data = get_base_dataset(
+        lr_data_dir_list=[data_root / "copernicus" / region for region in regions],
+        hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
+        batch_size=model_config["BATCH_SIZE"],
+        cuda=model_config["DEVICE"] == "cuda",
     )
+    model_config["data"] = data
 
-    # flattens out at about 38 epochs
-    train_times = unet_pipeline.train(retrain=True, timer=True)
+    # Creating models
+    unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
-    start_time = time.time()
-    unet_pipeline.test()
-    test_time = time.time() - start_time
-    print(f"Total testing time: {test_time:.2f} seconds.")
-    print(f"Total model runtime: {train_times['train'] + train_times['val'] + test_time:.2f} seconds for {unet_pipeline.epochs} epochs of training.")
+    unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
+    unet_gradloss.train(retrain=False)
+    unet_gradloss.test()
 
+    unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
+    unet_smoothgradloss.train(retrain=False)
+    unet_smoothgradloss.test()
+
+    # visualization 
     regions = ["jutland", "zealand", "bornholm"]
     visualization_data = get_base_dataset(
         lr_data_dir_list=[data_root / "selected" / "lr" / region for region in regions],
         hr_data_dir_list=[data_root / "selected" / "hr" / region for region in regions],
+        batch_size=1,
+        cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         randomize=False,
-    ).test
+    )[2]  # only test data is needed for visualization
 
     visualiser(
-        [unet_pipeline],
+        [unet_gradloss, unet_smoothgradloss],
         plotter_instance,
         visualization_data,
         model_config["DEVICE"],
         metrics,
     )
 
-    print("finished main")
+    print("Finished running main")
 
 
 if __name__ == "__main__":
