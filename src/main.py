@@ -15,8 +15,9 @@ from typing import Literal
 import time
 from loss_functions import *  # noqa: F403
 from visualiser import visualiser
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from metrics import *  # noqa: F403
+
 
 
 class ModelPipeline:
@@ -61,8 +62,15 @@ class ModelPipeline:
         self.min_pixel_value = model_config["data"][3]
         self.max_pixel_value = model_config["data"][4]
 
-        # scales learning rate down by a factor of 10 every 5 epochs
-        self.scheduler = StepLR(self.optimizer, step_size=5, gamma=0.1) if model_config["DYNAMIC_LR"] else None
+        # Use ReduceLROnPlateau to adapt LR based on validation loss
+        self.scheduler = ReduceLROnPlateau(
+            self.optimizer, mode='min', factor=0.5, patience=3
+        ) if model_config["DYNAMIC_LR"] else None
+        
+        # Early stopping state
+        self.best_val_loss = float('inf')
+        self.patience_count = 0
+        self.patience_limit = 5
 
         # this enables compatibility for older python 3.8.10 i think or maybe linux
         try:
@@ -154,11 +162,6 @@ class ModelPipeline:
                         training_state, epoch, idx, LR, HR, y_pred_denorm, self.cuda
                     )
 
-        # Step the learning rate scheduler if it is being used.
-        if training_state == "train" and self.scheduler is not None:
-            self.scheduler.step()
-            print(f"Learning rate after epoch {epoch + 1}: {self.scheduler.get_last_lr()[0]}")
-
         return [np.mean(running[key]) for key in ["Loss"] + list(self.metrics.keys())]
 
     
@@ -232,16 +235,22 @@ class ModelPipeline:
                     )
 
                 print("-" * 30)
-                # stopping training if metrics are the same for 10 epochs in a row
-                if len(train_metrics["Loss"]) > 10 and all(
-                    abs(train_metrics["Loss"][-i] - train_metrics["Loss"][-i - 1])
-                    < train_metrics["Loss"][-i] * 0.1
-                    for i in range(1, 10)
-                ):
-                    print(
-                        f"Training loss has not improved for 10 epochs. Stopping training at epoch {epoch + 1}."
-                    )
-                    break
+                
+                # Early stopping based on validation loss
+                val_loss = curr_val_metrics[0]
+                if self.scheduler is not None:
+                    self.scheduler.step(val_loss)
+                
+                if val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self.patience_count = 0
+                    print(f"Best validation loss: {val_loss:.4f}. Model saved.")
+                else:
+                    self.patience_count += 1
+                    print(f"No improvement in validation loss. Patience: {self.patience_count}/{self.patience_limit}")
+                    if self.patience_count >= self.patience_limit:
+                        print(f"Early stopping triggered at epoch {epoch + 1}.")
+                        break
 
             # Saving the model for the current run and timestamping it for archival purposes
             path = "checkpoints"
@@ -327,10 +336,10 @@ def main():
     # Initializing hyperparameters, metrics and configurations for the model pipeline
     metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
     model_config = {
-        "LEARNING_RATE": 2e-4,
+        "LEARNING_RATE": 5e-5,
         "DYNAMIC_LR": True,
         "BATCH_SIZE": 3,
-        "EPOCHS": 3,
+        "EPOCHS": 38,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
@@ -358,12 +367,16 @@ def main():
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
+    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss())
+    unet_SSIMLoss.train(retrain=True)
+    unet_SSIMLoss.test()
+
     unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
-    unet_gradloss.train(retrain=False)
+    unet_gradloss.train(retrain=True)
     unet_gradloss.test()
 
     unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
-    unet_smoothgradloss.train(retrain=False)
+    unet_smoothgradloss.train(retrain=True)
     unet_smoothgradloss.test()
 
     # visualization 
