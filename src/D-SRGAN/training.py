@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from data_distributor import get_base_dataset
-from helpers import prepare_dataloader
+from helpers import prepare_dataloader, compute_extremal_pixel_value, normalize_targets
 import time
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -24,13 +24,15 @@ optim_G = torch.optim.Adam(generator.parameters(), lr=0.0001)
 optim_D = torch.optim.Adam(discriminator.parameters(), lr=0.0001)
 
 num_epochs = 250
+GLOBAL_NORMALIZATION = True
 
 current_dir = Path(__file__).resolve().parent
 data_root = current_dir.parent.parent / "data"  # Contains train/, val/, test/
 checkpoint_dir = current_dir.parent.parent / "checkpoints"
 checkpoint_dir.mkdir(parents=True, exist_ok=True)
-generator_checkpoint_path = checkpoint_dir / "D-SRGAN.pth"
-generator_checkpoint_timestamped_path = checkpoint_dir / "archives" / f"D-SRGAN_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth"
+base_name = "D-SRGAN_" + ('global-norm' if GLOBAL_NORMALIZATION else 'local-norm')
+generator_checkpoint_path = checkpoint_dir / f"{base_name}.pth"
+generator_checkpoint_timestamped_path = checkpoint_dir / "archives" / f"{base_name}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth"
 
 regions = ["jutland", "funen"]
 data = get_base_dataset(
@@ -41,9 +43,9 @@ data = get_base_dataset(
 )
 batch_size = 3
 pin_memory = True if torch.cuda.is_available() else False
-
 train_loader = prepare_dataloader(data.train, batch_size=batch_size, pin_memory=pin_memory, shuffle_bool=True)
 val_loader = prepare_dataloader(data.val, batch_size=batch_size, pin_memory=pin_memory, shuffle_bool=False)
+train_min_val, train_max_val = compute_extremal_pixel_value(data.train, batch_size) if GLOBAL_NORMALIZATION else (None, None)
 
 num_train_batches = float(len(train_loader))
 num_val_batches = float(len(val_loader))
@@ -60,6 +62,7 @@ for epoch in range(num_epochs):
     generator.train()
     for batch, (lr, hr) in enumerate(tqdm(train_loader, desc=f"Training for epoch {epoch}")):
 
+
       for p in discriminator.parameters():
         p.requires_grad = False
         #training generator
@@ -68,6 +71,7 @@ for epoch in range(num_epochs):
       lr_images = lr.to(device)
       hr_images = hr.to(device)
       lr_images = lr_images.float()
+      lr_images, hr_images, _, _ = normalize_targets(lr_images, hr_images, train_min_val, train_max_val)
       predicted_hr_images = generator(lr_images)
       predicted_hr_labels = discriminator(predicted_hr_images)
       gf_loss = F.binary_cross_entropy_with_logits(predicted_hr_labels, torch.ones_like(predicted_hr_labels)) #adverserial loss
@@ -109,6 +113,7 @@ for epoch in range(num_epochs):
         lr = lr.to(device)
         hr = hr.to(device)
         lr = lr.float()
+        lr, hr, _, _ = normalize_targets(lr, hr, train_min_val, train_max_val)
         predicted_hr = generator(lr)
 
         psnr, ssim = calculate_error(hr, predicted_hr)
