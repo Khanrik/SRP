@@ -11,11 +11,6 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
     if not ModelPipelineList:
         raise ValueError("visualiser requires at least one ModelPipeline instance.")
 
-    def _denorm_if_needed(pipeline, tensor):
-        if getattr(pipeline, "normalize_targets", False):
-            return denormalize_target(tensor, pipeline.target_mean, pipeline.target_std)
-        return tensor
-
 
 
 
@@ -38,6 +33,8 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         # creating LR and HR tensors for the batch and moving them to the correct device.
         LR = LR.float().to(device)
         HR = HR.float().to(device)
+        normalized_LR, _, min_val, max_val = normalize_targets(LR)
+        normalized_HR, _, _, _ = normalize_targets(HR)
         # create bilinear upsampled image for comparison in the horizontal results plot, and calculate metrics for it as well.
         bilinear = torch.nn.functional.interpolate(
             LR,
@@ -68,8 +65,8 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         for pipeline in ModelPipelineList:
             pipeline.model.eval()
             with torch.no_grad():
-                y_pred = pipeline.model(LR)
-                y_pred_eval = _denorm_if_needed(pipeline, y_pred)
+                y_pred = pipeline.model(normalized_LR)
+                y_pred_eval = denormalize_target(y_pred, min_val, max_val)
                             
             pred_results=results(
                 image=y_pred_eval[0],

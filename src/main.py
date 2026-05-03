@@ -47,11 +47,11 @@ class ModelPipeline:
         self.num_workers = 0
         self.max_pixels_per_image = max_pixels_per_image
         self.profile_layers_once = model_config["PROFILE_LAYERS_ONCE"]
-        self.normalize_targets = model_config["NORMALIZE_TARGETS"]
         self.target_norm_eps = target_norm_eps
         self.plotter = plotter
         self.epochs = model_config["EPOCHS"]
         self.metrics = model_config["METRICS"]
+        self.global_norm = model_config["GLOBAL_NORMALIZATION"]
 
         # this enables compatibility for older python 3.8.10 i think or maybe linux
         try:
@@ -76,17 +76,16 @@ class ModelPipeline:
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
-            HR_for_loss = (
-                normalize_target(HR, self.target_mean, self.target_std)
-                if self.normalize_targets
-                else HR
-            )
+            if training_state == "train":
+                min_val, max_val = (self.min_pixel_value, self.max_pixel_value) if self.global_norm else (None, None)
+                normalized_LR, normalized_HR, min_val, max_val = normalize_targets(LR, HR, min_pixel_value=min_val, max_pixel_value=max_val)
+            else:
+                normalized_LR, _, min_val, max_val = normalize_targets(LR)
+                _, normalized_HR, _, _ = normalize_targets(HR)
 
             if epoch == 0 and idx == 0:
                 # Profiling for memory usage stats to avoid OOM errors.
-                profile_layer_activations(
-                    self.model, LR, self.cuda, self.profile_layers_once
-                )
+                profile_layer_activations(self.model, normalized_LR, self.cuda, self.profile_layers_once)
 
             # Using autocasting for the forward pass and loss calculation to reduce memory usage.
             # If cuda is false, this will just be a nullcontext and have no effect.
@@ -99,12 +98,10 @@ class ModelPipeline:
             try:
                 with autocast_ctx:
                     # Forward pass through the model to get predictions, and calculating the loss with the criterion.
-                    y_pred = self.model(LR)
-                    validate_batch_shapes(
-                        LR, HR_for_loss, y_pred, self.max_pixels_per_image
-                    )
+                    y_pred = self.model(normalized_LR)
+                    validate_batch_shapes(normalized_LR, normalized_HR, y_pred, self.max_pixels_per_image)
                 with torch.autocast(device_type=self.device, enabled=False):
-                    loss = self.criterion(y_pred.float(), HR_for_loss.float())
+                    loss = self.criterion(y_pred.float(), normalized_HR.float())
             except RuntimeError as err:
                 if "not enough memory" in str(err).lower():
                     # catching OOM errors during the forward pass or loss calculation.
@@ -123,11 +120,7 @@ class ModelPipeline:
                     f"pred range=({y_pred.min().item():.4f}, {y_pred.max().item():.4f})"
                 )
 
-            y_pred_eval = (
-                denormalize_target(y_pred, self.target_mean, self.target_std)
-                if self.normalize_targets
-                else y_pred
-            )
+            y_pred_eval = denormalize_target(y_pred, self.target_mean, self.target_std)
 
             running["Loss"].append(loss.item())
             for metric_name, metric_fn in self.metrics.items():
@@ -152,32 +145,19 @@ class ModelPipeline:
 
         return [np.mean(running[key]) for key in ["Loss"] + list(self.metrics.keys())]
 
-    def prepare_data(
-        self,
-        train_dataset: DatasetInterface,
-        val_dataset: DatasetInterface,
-        test_dataset: DatasetInterface,
-        batch_size: int,
-    ):
-        self.train_dataloader, self.val_dataloader, self.test_dataloader = (
-            prepare_dataloader(train_dataset, batch_size, self.cuda),
-            prepare_dataloader(val_dataset, batch_size, self.cuda),
-            prepare_dataloader(test_dataset, batch_size, self.cuda),
-        )
+    def prepare_data(self,
+                     train_dataset: DatasetInterface,
+                     val_dataset: DatasetInterface,
+                     test_dataset: DatasetInterface,
+                     batch_size: int):
+        self.train_dataloader, self.val_dataloader, self.test_dataloader = \
+            prepare_dataloader(train_dataset, batch_size, self.cuda), \
+            prepare_dataloader(val_dataset, batch_size, self.cuda), \
+            prepare_dataloader(test_dataset, batch_size, self.cuda)
+        
+        self.min_pixel_value, self.max_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size)
 
-        if self.normalize_targets:
-            self.target_mean, self.target_std = compute_target_norm_stats(
-                train_dataset, batch_size, self.num_workers, self.target_norm_eps
-            )
-        self.max_pixel_value = compute_max_pixel_value(
-            train_dataset + val_dataset + test_dataset, batch_size
-        )
-
-        if (
-            self.train_dataloader is None
-            or self.val_dataloader is None
-            or self.test_dataloader is None
-        ):
+        if self.train_dataloader is None or self.val_dataloader is None or self.test_dataloader is None:
             raise ValueError(
                 f"Dataloaders not properly initialized. Train samples: {len(train_dataset)}, "
                 f"Val samples: {len(val_dataset)}, Test samples: {len(test_dataset)}"
@@ -346,8 +326,8 @@ def main():
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
         "CRITERION": GradLoss(),
-        "NORMALIZE_TARGETS": True,
         "METRICS": metrics,
+        "GLOBAL_NORMALIZATION": True
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
@@ -363,7 +343,7 @@ def main():
     )
 
     # flattens out at about 38 epochs
-    unet_pipeline.train(retrain=False)
+    unet_pipeline.train(retrain=True)
 
     unet_pipeline.test()
 
