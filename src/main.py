@@ -15,6 +15,7 @@ from typing import Literal, Union
 import time
 from loss_functions import *
 from visualiser import visualiser
+from torch.optim.lr_scheduler import StepLR
 from metrics import *
 
 
@@ -52,6 +53,9 @@ class ModelPipeline:
         self.epochs = model_config["EPOCHS"]
         self.metrics = model_config["METRICS"]
         self.global_norm = model_config["GLOBAL_NORMALIZATION"]
+
+        # scales learning rate down by a factor of 10 every 5 epochs
+        self.scheduler = StepLR(self.optimizer, step_size=5, gamma=0.1) if model_config["DYNAMIC_LR"] else None
 
         # this enables compatibility for older python 3.8.10 i think or maybe linux
         try:
@@ -143,6 +147,11 @@ class ModelPipeline:
                         training_state, epoch, idx, LR, HR, y_pred_denorm, self.cuda
                     )
 
+        # Step the learning rate scheduler if it is being used.
+        if training_state == "train" and self.scheduler is not None:
+            self.scheduler.step()
+            print(f"Learning rate after epoch {epoch + 1}: {self.scheduler.get_last_lr()[0]}")
+
         return [np.mean(running[key]) for key in ["Loss"] + list(self.metrics.keys())]
 
     def prepare_data(self,
@@ -177,13 +186,17 @@ class ModelPipeline:
                 f"Val batches: {num_val_batches}"
             )
 
-    def train(self, retrain=False):
+    def train(self, retrain=False, timer=False):
         """Returns: training and validation losses and difference in height coefficients per epoch for analysis and debugging.
         Args:
 
         """
         if retrain:
             # initializing metrics
+            timers = {
+                "train": 0.0,
+                "val": 0.0
+            }
             train_metrics = {}
             val_metrics = {}
             train_metrics["Loss"] = []
@@ -198,6 +211,7 @@ class ModelPipeline:
 
             # looping through epochs
             for epoch in tqdm(range(self.epochs)):
+                time_start = time.time()
                 self.model.train()
                 curr_metrics = self._run_loop(
                     self.train_dataloader,
@@ -205,6 +219,7 @@ class ModelPipeline:
                     epoch=epoch,
                     use_amp=self.cuda,
                 )
+                timers["train"] += time.time() - time_start
 
                 print("-" * 30)
 
@@ -216,6 +231,7 @@ class ModelPipeline:
                     )
 
                 # Validation loop, i.e. training loop but without backpropagation and with torch.no_grad() to save memory and computations.
+                time_start = time.time()
                 self.model.eval()
                 self.profile_layers_once = (
                     False  # profile layers is only relevant for training
@@ -227,6 +243,7 @@ class ModelPipeline:
                         epoch=epoch,
                         use_amp=self.cuda,
                     )
+                timers["val"] += time.time() - time_start
 
                 print("\n")
 
@@ -291,7 +308,12 @@ class ModelPipeline:
                 torch.load(
                     model_pth, map_location=torch.device(self.device), weights_only=True
                 )
-            )
+            )      
+            
+        if timer:
+            print(f"Total training time: {timers['train']:.2f} seconds. Average time per epoch: {timers['train']/len(train_losses):.2f} seconds.")
+            print(f"Total validation time: {timers['val']:.2f} seconds. Average time per epoch: {timers['val']/len(val_losses):.2f} seconds.")
+            return timers
 
     def test(self):
         """Returns: test loss and difference coefficient for the test dataset."""
@@ -320,8 +342,9 @@ def main():
 
     model_config = {
         "LEARNING_RATE": 2e-4,
+        "DYNAMIC_LR": True,
         "BATCH_SIZE": 3,
-        "EPOCHS": 1,
+        "EPOCHS": 2,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
@@ -343,9 +366,13 @@ def main():
     )
 
     # flattens out at about 38 epochs
-    unet_pipeline.train(retrain=True)
+    train_times = unet_pipeline.train(retrain=True, timer=True)
 
+    start_time = time.time()
     unet_pipeline.test()
+    test_time = time.time() - start_time
+    print(f"Total testing time: {test_time:.2f} seconds.")
+    print(f"Total model runtime: {train_times['train'] + train_times['val'] + test_time:.2f} seconds for {unet_pipeline.epochs} epochs of training.")
 
     regions = ["jutland", "zealand", "bornholm"]
     visualization_data = get_base_dataset(

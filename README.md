@@ -11,8 +11,8 @@ Install all packages (except PyTorch) using pip and `requirements.txt` with this
 pip install -r requirements.txt
 ```
 
-#### PyTorch (for Windows)
-If you have an Nvidia GPU, you can run the `nvidia-smi --query-gpu=compute_cap` command which outputs something like this:
+#### PyTorch
+If you have an Nvidia GPU, you can run the `nvidia-smi --query-gpu=compute_cap --format=csv` command which outputs something like this:
 ```    
 compute_cap
 6.1
