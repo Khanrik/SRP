@@ -120,11 +120,11 @@ class ModelPipeline:
                     f"pred range=({y_pred.min().item():.4f}, {y_pred.max().item():.4f})"
                 )
 
-            y_pred_eval = denormalize_target(y_pred, self.target_mean, self.target_std)
+            y_pred_denorm = denormalize_target(y_pred, min_pixel_value=min_val, max_pixel_value=max_val)
 
             running["Loss"].append(loss.item())
             for metric_name, metric_fn in self.metrics.items():
-                metric_value = metric_fn(y_pred_eval.float(), HR)
+                metric_value = metric_fn(y_pred_denorm.float(), HR)
                 running[metric_name].append(metric_value)
 
             if training_state == "train":
@@ -140,7 +140,7 @@ class ModelPipeline:
             if idx == 0:
                 if training_state != "test":
                     log_shape_and_memory(
-                        training_state, epoch, idx, LR, HR, y_pred_eval, self.cuda
+                        training_state, epoch, idx, LR, HR, y_pred_denorm, self.cuda
                     )
 
         return [np.mean(running[key]) for key in ["Loss"] + list(self.metrics.keys())]
@@ -221,7 +221,7 @@ class ModelPipeline:
                     False  # profile layers is only relevant for training
                 )
                 with torch.no_grad():
-                    val_metrics = self._run_loop(
+                    curr_val_metrics = self._run_loop(
                         self.val_dataloader,
                         training_state="val",
                         epoch=epoch,
@@ -230,11 +230,11 @@ class ModelPipeline:
 
                 print("\n")
 
-                val_metrics["Loss"].append(val_metrics[0])
+                val_metrics["Loss"].append(curr_val_metrics[0])
                 for i, metric_name in enumerate(self.metrics.keys()):
-                    val_metrics[metric_name].append(val_metrics[i + 1])
+                    val_metrics[metric_name].append(curr_val_metrics[i + 1])
                     print(
-                        f"Epoch {epoch + 1} Val {metric_name}: {val_metrics[i + 1]:.4f}"
+                        f"Epoch {epoch + 1} Val {metric_name}: {curr_val_metrics[i + 1]:.4f}"
                     )
 
                 print("-" * 30)
@@ -321,7 +321,7 @@ def main():
     model_config = {
         "LEARNING_RATE": 2e-4,
         "BATCH_SIZE": 3,
-        "EPOCHS": 38,
+        "EPOCHS": 1,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,

@@ -53,13 +53,13 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
                 image=LR[0],
                 name="LR Input",
                 metrics=_metric_items(nearest, HR)
-            ),
+            )
         )
         image_result.append(
             results(
                 image=bilinear[0],
                 name="bilinear",
-                metrics=_metric_items(bilinear, HR),
+                metrics=_metric_items(bilinear, HR)
             )
         )
         for pipeline in ModelPipelineList:

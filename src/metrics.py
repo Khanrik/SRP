@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
+from helpers import normalize_targets
 
 def MAE(prediction, target) -> float:
     """Calculates the MAE between the predicted and target tensors
@@ -36,7 +37,7 @@ def PSNR(prediction, target) -> float:
         prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
         target: The ground truth target tensor of the same shape as prediction.
     """
-    
+    prediction,target,_,_ = normalize_targets(prediction, target)
     mse = MSE(prediction, target)
     if mse == 0:
         return float('inf')
@@ -50,6 +51,7 @@ def SSIM(prediction, target):
         target: The ground truth target tensor of the same shape as prediction.
     """
     # Convert tensors to numpy images and handle channel ordering for skimage
+    prediction,target,_,_ = normalize_targets(prediction, target)
     p = prediction.detach().cpu().numpy()
     t = target.detach().cpu().numpy()
     # remove batch dim if present
