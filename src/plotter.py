@@ -26,21 +26,6 @@ class plotter:
         if self.save_plots or self.show_plots:
             epochs = range(1, len(train_metrics['Loss']) + 1)
             # if there are over 4 metrics, split them into multiple figures to avoid overcrowding.
-            # otherwise, plot all metrics in a single figure.
-            
-            # if len(train_metrics) <= 4:
-            #     plt.figure(figsize=(12, 8))
-            #     for i, metric_name in enumerate(train_metrics.keys()):
-            #         train_values = train_metrics[metric_name]
-            #         val_values = val_metrics[metric_name]
-            #         plt.subplot(2, 2, i + 1)
-            #         plt.plot(epochs, train_values, label=f'Train {metric_name}')
-            #         plt.plot(epochs, val_values, label=f'Val {metric_name}')
-            #         plt.xlabel('Epoch')
-            #         plt.ylabel(metric_name)
-            #         plt.title(f'Training and Validation {metric_name}')
-            #         plt.legend()
-            # elif len(train_metrics) > 4:
             num_figures = (len(train_metrics) + 3) // 4
             for fig_idx in range(num_figures):
                 fig = plt.figure(figsize=(12, 8))

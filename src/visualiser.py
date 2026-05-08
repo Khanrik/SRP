@@ -2,13 +2,14 @@ from helpers import results, normalize_targets, denormalize_target
 import torch
 from tqdm import tqdm
 
-def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device, metrics):
+def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device, metrics, data_range=1.0, mean=None, std=None):
     """Returns: None. Tests multiple model pipelines and prints their test losses and difference coefficients for comparison.
     Args:
         ModelPipelineList: A list of ModelPipeline instances to be tested.
         plotter_instance: An instance of the plotter class for visualization.
         selected_test_images: A list of lr and hr image pairs to be used for testing and visualization.
         metrics: A dictionary of metric functions to be used for evaluation.
+        data_range: The dynamic range of the images (i.e., the difference between the maximum and minimum possible values).
     """
     if not ModelPipelineList:
         raise ValueError("visualiser requires at least one ModelPipeline instance.")
@@ -19,7 +20,10 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
     def _metric_items(prediction, target):
         metric_items = []
         for metric_name, metric_func in metrics.items():
-            metric_value = metric_func(prediction.float(), target)
+            if metric_name == "PSNR" or metric_name == "SSIM":
+                metric_value = metric_func(prediction.float(), target, data_range=data_range)
+            else:
+                metric_value = metric_func(prediction.float(), target)
             metric_items.append((metric_name, metric_value))
         return metric_items
 
@@ -29,8 +33,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         # creating LR and HR tensors for the batch and moving them to the correct device.
         LR = LR.float().to(device)
         HR = HR.float().to(device)
-        normalized_LR, _, min_val, max_val = normalize_targets(LR)
-        normalized_HR, _, _, _ = normalize_targets(HR)
+        normalized_LR, _ = normalize_targets(target=LR, opt_target=HR, mean=mean, std=std)
         # create bilinear upsampled image for comparison in the horizontal results plot, and calculate metrics for it as well.
         bilinear = torch.nn.functional.interpolate(
             LR,
@@ -62,7 +65,7 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
             pipeline.model.eval()
             with torch.no_grad():
                 y_pred = pipeline.model(normalized_LR)
-                y_pred_eval = denormalize_target(y_pred, min_val, max_val)
+                y_pred_eval = denormalize_target(y_pred, mean=mean, std=std)
                             
             pred_results=results(
                 image=y_pred_eval[0],

@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
-from helpers import normalize_targets
 
 def MAE(prediction, target) -> float:
     """Calculates the MAE between the predicted and target tensors
@@ -31,27 +30,27 @@ def RMSE(prediction, target) -> float:
     rmse = np.sqrt(mse)
     return rmse
 
-def PSNR(prediction, target) -> float:
+def PSNR(prediction, target, data_range=1.0) -> float:
     """Calculates the PSNR between the predicted and target tensors
     Args:
         prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
         target: The ground truth target tensor of the same shape as prediction.
+        data_range: The dynamic range of the images (i.e., the difference between the maximum and minimum possible values).
     """
-    prediction,target,_,_ = normalize_targets(prediction, target)
     mse = MSE(prediction, target)
     if mse == 0:
         return float('inf')
-    psnr = 10 * np.log10(1**2 / mse)
+    psnr = 10 * np.log10(data_range**2 / mse)
     return psnr
 
-def SSIM(prediction, target):
+def SSIM(prediction, target, data_range=1.0) -> float:
     """Calculates the SSIM between the predicted and target tensors
     Args:
         prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
         target: The ground truth target tensor of the same shape as prediction.
+        data_range: The dynamic range of the images (i.e., the difference between the maximum and minimum possible values).
     """
     # Convert tensors to numpy images and handle channel ordering for skimage
-    prediction,target,_,_ = normalize_targets(prediction, target)
     p = prediction.detach().cpu().numpy()
     t = target.detach().cpu().numpy()
     # remove batch dim if present
@@ -78,12 +77,12 @@ def SSIM(prediction, target):
     # Try calling structural_similarity with channel_axis (newer skimage) or multichannel (older)
     try:
         if p.ndim == 3:
-            return float(ssim(p, t, data_range=1, channel_axis=2, win_size=win_size))
+            return float(ssim(p, t, data_range=data_range, channel_axis=2, win_size=win_size))
         else:
-            return float(ssim(p, t, data_range=1, win_size=win_size))
+            return float(ssim(p, t, data_range=data_range, win_size=win_size))
     except TypeError:
         # fallback for older skimage versions
         if p.ndim == 3:
-            return float(ssim(p, t, data_range=1, multichannel=True, win_size=win_size))
+            return float(ssim(p, t, data_range=data_range, multichannel=True, win_size=win_size))
         else:
-            return float(ssim(p, t, data_range=1, win_size=win_size))
+            return float(ssim(p, t, data_range=data_range, win_size=win_size))

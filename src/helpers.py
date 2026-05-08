@@ -95,17 +95,6 @@ class DatasetInterface(Dataset):
                 self.hr_transform(self.hr[idx]).float()
 
 
-def denormalize_target(target: torch.Tensor, min_pixel_value: float, max_pixel_value: float) -> torch.Tensor:
-    """
-    Args:
-        target: The normalized target tensor that is normalized
-        min_pixel_value: The minimum pixel value that was used for normalization.
-        max_pixel_value: The maximum pixel value that was used for normalization.
-    Returns:
-        
-    """
-    return target * (max_pixel_value - min_pixel_value) + min_pixel_value
-
 def tensor_mb(tensor) -> float:
     # Calculate the approximate memory usage of a tensor in megabytes. 
     # This is for avoiding OOM errors and does not account for additional memory used (autograd, optimizer states, etc).
@@ -222,21 +211,31 @@ def profile_layer_activations(model: nn.Module,
     plt.show()
     profile_layers_once = False
 
-def normalize_targets(target: torch.Tensor, opt_target: torch.Tensor = None, min_pixel_value: float = None, max_pixel_value: float = None) -> tuple[torch.Tensor, torch.Tensor, float, float]:
+def normalize_targets(target: torch.Tensor, mean: float, std: float, opt_target: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor, float, float]:
     """Normalizes a tensor or pair of tensors between 0 and 1
 
     Args:
         target: The target tensor to normalize
+        mean: The mean pixel value in the dataset.
+        std: The standard deviation of pixel values in the dataset.
         opt_target: An optional tensor to pair with the target. Not including opt_target will normalize target based on its own min and max values.
-        min_pixel_value: The minimum pixel value in the dataset. If None, it will use the relative min value between target and opt_target.
-        max_pixel_value: The maximum pixel value in the dataset. If None, it will use the relative max value between target and opt_target.
 
     Returns:
-        (target, opt_target, min_pixel_value, max_pixel_value): Normalized pair of tensors (`target == opt_target` if opt_target is not provided) and the min and max pixel values used for normalization
+        (target, opt_target): Normalized pair of tensors (`target == opt_target` if opt_target is not provided) and the mean and standard deviation used for normalization
     """
     opt_target = opt_target if opt_target is not None else target
-    max_pixel_value = max_pixel_value or max(target.max().item(), opt_target.max().item())
-    min_pixel_value = min_pixel_value or min(target.min().item(), opt_target.min().item())
-    if max_pixel_value == min_pixel_value:
-        return target, opt_target, min_pixel_value, max_pixel_value
-    return (target - min_pixel_value) / (max_pixel_value - min_pixel_value), (opt_target - min_pixel_value) / (max_pixel_value - min_pixel_value), min_pixel_value, max_pixel_value
+
+    normalized_target = (target - mean) / std
+    normalized_opt_target = (opt_target - mean) / std
+    return normalized_target, normalized_opt_target
+
+def denormalize_target(target: torch.Tensor, mean: float, std: float) -> torch.Tensor:
+    """
+    Args:
+        target: The normalized target tensor that is normalized
+        mean: The mean pixel value used for normalization.
+        std: The standard deviation of pixel values used for normalization.
+    Returns:
+        
+    """
+    return target * std + mean
