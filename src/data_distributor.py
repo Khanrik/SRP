@@ -6,6 +6,7 @@ from random import Random
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from scipy import stats
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -140,26 +141,51 @@ def get_base_dataset(lr_data_dir_list: list[Path],
     return [train_dataloader, val_dataloader, test_dataloader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value]
 
 
+def filter_min_outliers(data, z_threshold=3):
+    """Filters out lower-tail outliers from the data using the Z-score method.
+    
+    Args:
+        data: A list of numerical values.
+        z_threshold: The Z-score threshold to identify outliers. Default is 3.
+    
+    Returns:
+        A list of values with outliers removed and the amount of values disregarded.
+    """
+    if len(data) == 0:
+        return [0.0], 0
+    z_scores = stats.zscore(data)
+    values_disregarded_amount = 0
+    filtered_data = []
+    for i, z_score in enumerate(z_scores):  
+        if z_score < -z_threshold:  
+            values_disregarded_amount += 1  
+        else:  
+            filtered_data.append(data[i])  
+    return filtered_data, values_disregarded_amount
+
+
 def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int) -> tuple[float, float, float, float]:
     """Computes the minimum and maximum pixel values across the entire dataset
     
     Returns:
         (min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value): The minimum and maximum pixel values found in the dataset
     """
+    if len(dataset) < 1:  
+        return 0, 0, 0, 0 
     loader = DataLoader(dataset, batch_size=batch_size)
-    min_pixel_value_lr = []
-    max_pixel_value_lr = []
-    min_pixel_value_hr = []
-    max_pixel_value_hr = []
+    min_pixel_values_lr = []
+    max_pixel_values_lr = []
+    min_pixel_values_hr = []
+    max_pixel_values_hr = []
     mean_pixel_value = 0.0
     std_pixel_value = 0.0
     total_pixels = 0
 
     for lr, hr in tqdm(loader, desc="Computing test dataset pixel value statistics"):
-        min_pixel_value_lr.append(lr.min().item())
-        max_pixel_value_lr.append(lr.max().item())
-        min_pixel_value_hr.append(hr.min().item())
-        max_pixel_value_hr.append(hr.max().item())
+        min_pixel_values_lr.append(lr.min().item())
+        max_pixel_values_lr.append(lr.max().item())
+        min_pixel_values_hr.append(hr.min().item())
+        max_pixel_values_hr.append(hr.max().item())
 
         # Update mean and std
         batch_pixels = lr.numel() + hr.numel()
@@ -167,27 +193,28 @@ def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int) -> 
         mean_pixel_value += (lr.mean().item() * lr.numel() + hr.mean().item() * hr.numel())
         std_pixel_value += (lr.std().item() ** 2 * lr.numel() + hr.std().item() ** 2 * hr.numel())
 
-    if total_pixels > 0:
-        mean_pixel_value /= total_pixels
-        std_pixel_value = (std_pixel_value / total_pixels) ** 0.5
+    mean_pixel_value /= total_pixels
+    std_pixel_value = (std_pixel_value / total_pixels) ** 0.5
     
     #combining the min and max pixel values from lr and hr to get the overall min and max pixel values across the dataset
-    min_pixel_value = min_pixel_value_lr + min_pixel_value_hr
-    max_pixel_value = max_pixel_value_lr + max_pixel_value_hr
-    amount_of_min_values_disregarded = sum(1 for min_val in min_pixel_value if min_val <= -800)
+    filtered_min_pixel_values_lr, amount_of_min_values_disregarded_lr = filter_min_outliers(min_pixel_values_lr, z_threshold=3)
+    filtered_min_pixel_values_hr, amount_of_min_values_disregarded_hr = filter_min_outliers(min_pixel_values_hr, z_threshold=3)
+    amount_of_min_values_disregarded = amount_of_min_values_disregarded_lr + amount_of_min_values_disregarded_hr
+    
+    min_pixel_values = filtered_min_pixel_values_lr + filtered_min_pixel_values_hr
+    max_pixel_values = max_pixel_values_lr + max_pixel_values_hr
 
-    # finding min and max of the dataset from the batch-wise min and max values. disregarding the values under -800
-    dataset_min_pixel_value = min(min_val for min_val in min_pixel_value if min_val > -800) if min_pixel_value else 0.0
-    dataset_max_pixel_value = max(max_pixel_value) if max_pixel_value else 0.0
+    dataset_min_pixel_value = min(min_pixel_values)
+    dataset_max_pixel_value = max(max_pixel_values) if max_pixel_values else 0.0
     
     # plot the box plot of the max and min pixel values across the dataset, lr beside hr, in the same figure with two subplots
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
-    plt.boxplot([[min_val for min_val in min_pixel_value_lr if min_val > -800], [min_val for min_val in min_pixel_value_hr if min_val > -800]], labels=['LR Min Pixel Values', 'HR Min Pixel Values'])
+    plt.boxplot([filtered_min_pixel_values_lr, filtered_min_pixel_values_hr], labels=['LR Min Pixel Values', 'HR Min Pixel Values'])
     plt.ylabel('Pixel Value')
     plt.title('Histogram of Minimum Pixel Values')
     plt.subplot(1, 2, 2)
-    plt.boxplot([max_pixel_value_lr, max_pixel_value_hr], labels=['LR Max Pixel Values', 'HR Max Pixel Values'])
+    plt.boxplot([max_pixel_values_lr, max_pixel_values_hr], labels=['LR Max Pixel Values', 'HR Max Pixel Values'])
     plt.ylabel('Pixel Value')
     plt.title('Histogram of Maximum Pixel Values')
     plt.suptitle(f'Box Plots of Minimum and Maximum Pixel Values in the Dataset\n(Disregarding {amount_of_min_values_disregarded} values under -800 for min pixel value)')

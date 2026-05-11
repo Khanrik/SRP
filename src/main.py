@@ -17,6 +17,7 @@ from loss_functions import *  # noqa: F403
 from visualiser import visualiser
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from metrics import *  # noqa: F403
+from inspect import signature
 
 
 
@@ -97,7 +98,7 @@ class ModelPipeline:
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
-            normalized_LR, normalized_HR = normalize_targets(target=LR,opt_target= HR, mean=self.mean_pixel_value, std=self.std_pixel_value)
+            normalized_LR, normalized_HR = normalize_targets(targets=[LR, HR], mean=self.mean_pixel_value, std=self.std_pixel_value)
 
             if epoch == 0 and idx == 0:
                 # Profiling for memory usage stats to avoid OOM errors.
@@ -140,8 +141,11 @@ class ModelPipeline:
 
             running["Loss"].append(loss.item())
             for metric_name, metric_fn in self.metrics.items():
-                if metric_name == "PSNR" or metric_name == "SSIM":
+                input_parameters = signature(metric_fn).parameters.keys()
+                if "data_range" in input_parameters:  
                     metric_value = metric_fn(y_pred_denorm.float(), HR, data_range=self.max_pixel_value - self.min_pixel_value)
+                elif "max_value" in input_parameters:
+                    metric_value = metric_fn(y_pred_denorm.float(), HR, max_value=self.max_pixel_value)
                 else:
                     metric_value = metric_fn(y_pred_denorm.float(), HR)
                 running[metric_name].append(metric_value)
@@ -400,7 +404,8 @@ def main():
         visualization_data,
         model_config["DEVICE"],
         metrics,
-        data_range=data[4]-data[3],
+        min_val=data[3],
+        max_val=data[4],
         mean=data[5],
         std=data[6]
     )

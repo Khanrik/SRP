@@ -30,17 +30,17 @@ def RMSE(prediction, target) -> float:
     rmse = np.sqrt(mse)
     return rmse
 
-def PSNR(prediction, target, data_range=1.0) -> float:
+def PSNR(prediction, target, max_value=1.0) -> float:
     """Calculates the PSNR between the predicted and target tensors
     Args:
         prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
         target: The ground truth target tensor of the same shape as prediction.
-        data_range: The dynamic range of the images (i.e., the difference between the maximum and minimum possible values).
+        max_value: The maximum possible value of the images (default is 1.0).
     """
     mse = MSE(prediction, target)
     if mse == 0:
         return float('inf')
-    psnr = 10 * np.log10(data_range**2 / mse)
+    psnr = 10 * np.log10(max_value**2 / mse)
     return psnr
 
 def SSIM(prediction, target, data_range=1.0) -> float:

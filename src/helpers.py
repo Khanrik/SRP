@@ -211,23 +211,26 @@ def profile_layer_activations(model: nn.Module,
     plt.show()
     profile_layers_once = False
 
-def normalize_targets(target: torch.Tensor, mean: float, std: float, opt_target: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor, float, float]:
-    """Normalizes a tensor or pair of tensors between 0 and 1
+def normalize_targets(targets: list[torch.Tensor], mean: float, std: float) -> list[torch.Tensor]:
+    """Normalizes a tensor with Z-score normalization
 
     Args:
-        target: The target tensor to normalize
+        targets: A list of target tensors to be normalized.
         mean: The mean pixel value in the dataset.
         std: The standard deviation of pixel values in the dataset.
-        opt_target: An optional tensor to pair with the target. Not including opt_target will normalize target based on its own min and max values.
 
     Returns:
-        (target, opt_target): Normalized pair of tensors (`target == opt_target` if opt_target is not provided) and the mean and standard deviation used for normalization
+        A list of normalized tensors.
     """
-    opt_target = opt_target if opt_target is not None else target
+    if not isinstance(targets, list):
+        targets = [targets]
 
-    normalized_target = (target - mean) / std
-    normalized_opt_target = (opt_target - mean) / std
-    return normalized_target, normalized_opt_target
+    normalized_targets = []
+
+    for target in targets:
+        normalized_targets.append((target - mean) / std)
+
+    return normalized_targets if len(normalized_targets) > 1 else normalized_targets[0]
 
 def denormalize_target(target: torch.Tensor, mean: float, std: float) -> torch.Tensor:
     """
