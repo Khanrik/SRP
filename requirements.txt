@@ -13,3 +13,4 @@ xarray
 xarray-spatial
 datashader
 skimage
+geopandas

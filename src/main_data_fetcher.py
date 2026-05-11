@@ -1,5 +1,5 @@
 from __future__ import annotations
-from helpers import BoundingBoxDegree
+from data_distributor import BoundingBoxDegree
 from dataforsyningen import Dataforsyningen
 from dataclasses import dataclass
 from copernicus import Copernicus

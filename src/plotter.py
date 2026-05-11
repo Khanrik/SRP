@@ -4,6 +4,12 @@ import time
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+from torch.utils.data import DataLoader
+from shapely.geometry import box
+import geopandas as gpd
+from helpers import normalize_targets, denormalize_target
+import torch
+from tqdm import tqdm
 
 # data and metrics
 class plotter:
@@ -169,3 +175,143 @@ class plotter:
             plt.show()
 
 
+    def plot_datasplit_map(self, loaders: list[DataLoader], crs="EPSG:25832"):
+        if not (self.save_plots or self.show_plots):
+            return
+        records = []
+
+        for loader in loaders:
+            dataset = loader.dataset
+            for idx in range(len(dataset)):
+                bbox = dataset.get_bbox(idx)
+                records.append({
+                    "category": dataset.category,
+                    "geometry": box(
+                        bbox.left,
+                        bbox.bottom,
+                        bbox.right,
+                        bbox.top
+                    )
+                })
+        
+        gdf = gpd.GeoDataFrame(
+            records,
+            geometry="geometry",
+            crs=crs
+        )
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        gdf.plot(
+            column="category",
+            categorical=True,
+            cmap="Set1",
+            legend=True,
+            edgecolor="black",
+            linewidth=0.2,
+            ax=ax
+        )
+
+        ax.set_title("Data Split Map", fontsize=14, pad=12)
+        ax.set_axis_off()
+        fig.tight_layout()
+
+        if self.save_plots and self.save_dir:
+            fig.savefig(
+                os.path.join(
+                    self.save_dir,
+                    f"datasplit_map_{time.strftime('%Y-%m-%d_%H-%M-%S')}.png",
+                ),
+                dpi=300,
+                bbox_inches="tight",
+            )
+        if self.show_plots:
+            plt.show()
+
+
+    def plot_metric_maps(self, loaders: list[DataLoader], pipeline, metrics: dict, crs="EPSG:25832"):
+        if not (self.save_plots or self.show_plots):
+            return
+
+        num_cols = len(metrics)
+
+        fig, axes = plt.subplots(
+            1,
+            num_cols,
+            figsize=(4 * num_cols, 6),
+            squeeze=False,
+        )
+
+        for col_idx, (metric_name, metric_func) in enumerate(metrics.items()):
+            ax = axes[0][col_idx]
+            records = []
+
+            for loader in loaders:
+                dataset = loader.dataset
+                # Pair each loaded batch with its exact dataset indices (works with shuffle and any batch size).
+                for batch_indices, (LR_batch, HR_batch) in tqdm(
+                    zip(loader.batch_sampler, loader),
+                    desc=f"Processing {metric_name} map",
+                    total=len(loader),
+                ):
+                    LR_batch = LR_batch.float().to(pipeline.device)
+                    HR_batch = HR_batch.float().to(pipeline.device)
+
+                    if isinstance(batch_indices, torch.Tensor):
+                        batch_indices = batch_indices.tolist()
+
+                    pipeline.model.eval()
+                    for sample_offset, dataset_idx in enumerate(batch_indices):
+                        LR = LR_batch[sample_offset : sample_offset + 1]
+                        HR = HR_batch[sample_offset : sample_offset + 1]
+                        normalized_LR, normalized_HR, min_val, max_val = normalize_targets(LR, HR)
+                        with torch.no_grad():
+                            y_pred = pipeline.model(normalized_LR)
+                            y_pred_eval = denormalize_target(y_pred, min_val, max_val)
+
+                        metric_value = metric_func(y_pred_eval, HR)
+                        if isinstance(metric_value, torch.Tensor):
+                            metric_value = metric_value.detach().cpu().item()
+
+                        bbox = dataset.get_bbox(int(dataset_idx))
+                        records.append({
+                            "metric_value": metric_value,
+                            "geometry": box(
+                                bbox.left,
+                                bbox.bottom,
+                                bbox.right,
+                                bbox.top
+                            )
+                        })
+
+            gdf = gpd.GeoDataFrame(
+                records,
+                geometry="geometry",
+                crs=crs
+            )
+            gdf.plot(
+                column="metric_value",
+                cmap="viridis",
+                legend=True,
+                edgecolor="black",
+                linewidth=0.2,
+                ax=ax
+            )
+
+            ax.set_title(f"{metric_name} Map", fontsize=12, pad=8)
+            ax.set_axis_off()
+
+        fig.tight_layout()
+
+        if self.save_plots and self.save_dir:
+            fig.savefig(
+                os.path.join(
+                    self.save_dir,
+                    f"metric_maps_{time.strftime('%Y-%m-%d_%H-%M-%S')}.png",
+                ),
+                dpi=300,
+                bbox_inches="tight",
+            )
+
+        if self.show_plots:
+            plt.show()

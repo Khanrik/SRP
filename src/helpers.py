@@ -1,99 +1,16 @@
 from __future__ import annotations
 
-import copy
 import torch
 import matplotlib.pyplot as plt
 import torch.nn as nn
 from contextlib import nullcontext
-
 from dataclasses import dataclass
-from torchvision import transforms
-from PIL import Image
-from torch.utils.data.dataset import Dataset
-from typing import TYPE_CHECKING
-from tqdm import tqdm
-
-if TYPE_CHECKING:
-    from data_distributor import DataPair
 
 @dataclass
 class results:
     image: torch.Tensor
     name: str
     metrics: list[tuple[str, float]]
-
-@dataclass
-class BoundingBoxDegree:
-    lon_min: float
-    lat_min: float
-    lon_max: float
-    lat_max: float
-
-@dataclass
-class BoundingBoxMeter:
-    x_min: float
-    y_min: float
-    x_max: float
-    y_max: float
-
-@dataclass
-class DataDivision:
-    """A class to define the division of data into training, validation, and test sets.
-
-    All floats must be between 0 and 1 and their sum must equal 1.
-    
-    It is possible to set a paramter to 0, meaning that no data will be assigned to that set. 
-
-    If `no_division` is set to True, all data will be written to a single folder (`output_path`) instead of being divided into train, val, and test folders.
-    """
-    train: float = 0
-    val: float = 0
-    test: float = 0
-    no_division: bool = False
-
-    def __post_init__(self):
-        total = sum(self.__dict__.values())
-        if self.no_division:
-            return
-        if abs(total - 1.0) > 1e-6:
-            raise ValueError("The sum of non bool train, val, and test proportions must equal 1.")
-        
-
-
-
-class DatasetInterface(Dataset):
-    def __init__(self,
-                 data_pairs: list[DataPair],
-                 lr_target_size: tuple[int, int] = (128, 128),
-                 loading_description: str = "Loading dataset"):
-        self.lr_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize(lr_target_size)
-        ])
-        self.hr_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize((lr_target_size[0] * 3, lr_target_size[1] * 3))
-        ])
-
-        self.lr = []
-        self.hr = []
-        for pair in tqdm(data_pairs, desc=loading_description):
-            self.lr.append(Image.open(pair.lr))
-            self.hr.append(Image.open(pair.hr))
-
-    def __add__(self, other):
-        combined = copy.deepcopy(self)
-        combined.lr += other.lr 
-        combined.hr += other.hr
-        return combined
-
-    def __len__(self):
-        return len(self.lr)
-
-    def __getitem__(self, idx: int):
-        return  self.lr_transform(self.lr[idx]).float(), \
-                self.hr_transform(self.hr[idx]).float()
-
 
 def denormalize_target(target: torch.Tensor, min_pixel_value: float, max_pixel_value: float) -> torch.Tensor:
     """

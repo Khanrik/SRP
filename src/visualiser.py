@@ -1,14 +1,19 @@
 from helpers import results, normalize_targets, denormalize_target
 import torch
 from tqdm import tqdm
+from plotter import plotter
 
-def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device, metrics):
+def visualiser(ModelPipelineList, select_model_idx: int, plotter_instance: plotter, selected_test_images, denmark_data: list, device, metrics, include_datasplit = True):
     """Returns: None. Tests multiple model pipelines and prints their test losses and difference coefficients for comparison.
     Args:
         ModelPipelineList: A list of ModelPipeline instances to be tested.
+        select_model_idx: The index of the model to be selected for map visualization.
         plotter_instance: An instance of the plotter class for visualization.
         selected_test_images: A list of lr and hr image pairs to be used for testing and visualization.
+        denmark_data: All denmark data to be used for map visualization.
+        device: The device to run the model on.
         metrics: A dictionary of metric functions to be used for evaluation.
+        include_datasplit: A boolean indicating whether to include the data split map in the visualization.
     """
     if not ModelPipelineList:
         raise ValueError("visualiser requires at least one ModelPipeline instance.")
@@ -82,5 +87,9 @@ def visualiser(ModelPipelineList, plotter_instance, selected_test_images, device
         
         test_result.extend([image_result])
     plotter_instance.plot_horizontal_results(test_result, interpolation="nearest")
+    
+    if include_datasplit:
+        plotter_instance.plot_datasplit_map(denmark_data)
+    plotter_instance.plot_metric_maps(denmark_data, ModelPipelineList[select_model_idx], metrics)
     
     return
