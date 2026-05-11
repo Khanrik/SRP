@@ -17,6 +17,7 @@ from loss_functions import *  # noqa: F403
 from visualiser import visualiser
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from metrics import *  # noqa: F403
+from inspect import signature
 
 
 
@@ -61,6 +62,8 @@ class ModelPipeline:
         self.test_dataloader = model_config["data"][2]
         self.min_pixel_value = model_config["data"][3]
         self.max_pixel_value = model_config["data"][4]
+        self.mean_pixel_value = model_config["data"][5]
+        self.std_pixel_value = model_config["data"][6]
 
         # Use ReduceLROnPlateau to adapt LR based on validation loss
         self.scheduler = ReduceLROnPlateau(
@@ -95,12 +98,7 @@ class ModelPipeline:
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
-            if training_state == "train":
-                min_val, max_val = (self.min_pixel_value, self.max_pixel_value) if self.global_norm else (None, None)
-                normalized_LR, normalized_HR, min_val, max_val = normalize_targets(LR, HR, min_pixel_value=min_val, max_pixel_value=max_val)
-            else:
-                normalized_LR, _, min_val, max_val = normalize_targets(LR)
-                _, normalized_HR, _, _ = normalize_targets(HR)
+            normalized_LR, normalized_HR = normalize_targets(targets=[LR, HR], mean=self.mean_pixel_value, std=self.std_pixel_value)
 
             if epoch == 0 and idx == 0:
                 # Profiling for memory usage stats to avoid OOM errors.
@@ -139,11 +137,17 @@ class ModelPipeline:
                     f"pred range=({y_pred.min().item():.4f}, {y_pred.max().item():.4f})"
                 )
 
-            y_pred_denorm = denormalize_target(y_pred, min_pixel_value=min_val, max_pixel_value=max_val)
+            y_pred_denorm = denormalize_target(y_pred, mean=self.mean_pixel_value, std=self.std_pixel_value)
 
             running["Loss"].append(loss.item())
             for metric_name, metric_fn in self.metrics.items():
-                metric_value = metric_fn(y_pred_denorm.float(), HR)
+                input_parameters = signature(metric_fn).parameters.keys()
+                if "data_range" in input_parameters:  
+                    metric_value = metric_fn(y_pred_denorm.float(), HR, data_range=self.max_pixel_value - self.min_pixel_value)
+                elif "max_value" in input_parameters:
+                    metric_value = metric_fn(y_pred_denorm.float(), HR, max_value=self.max_pixel_value)
+                else:
+                    metric_value = metric_fn(y_pred_denorm.float(), HR)
                 running[metric_name].append(metric_value)
 
             if training_state == "train":
@@ -202,14 +206,15 @@ class ModelPipeline:
                 timers["train"] += time.time() - time_start
 
                 print("-" * 30)
-
                 train_metrics["Loss"].append(curr_metrics[0])
                 for i, metric_name in enumerate(self.metrics.keys()):
                     train_metrics[metric_name].append(curr_metrics[i + 1])
                     print(
                         f"Epoch {epoch + 1} Train {metric_name}: {curr_metrics[i + 1]:.4f}"
                     )
-
+                print(
+                    f"Epoch {epoch + 1} Val Loss: {curr_metrics[0]:.4f}"
+                )
                 # Validation loop, i.e. training loop but without backpropagation and with torch.no_grad() to save memory and computations.
                 time_start = time.time()
                 self.model.eval()
@@ -233,18 +238,21 @@ class ModelPipeline:
                     print(
                         f"Epoch {epoch + 1} Val {metric_name}: {curr_val_metrics[i + 1]:.4f}"
                     )
+                val_loss = curr_val_metrics[0]
+                print(
+                    f"Epoch {epoch + 1} Val Loss: {val_loss:.4f}"
+                )
 
                 print("-" * 30)
                 
                 # Early stopping based on validation loss
-                val_loss = curr_val_metrics[0]
                 if self.scheduler is not None:
                     self.scheduler.step(val_loss)
                 
                 if val_loss < self.best_val_loss:
                     self.best_val_loss = val_loss
                     self.patience_count = 0
-                    print(f"Best validation loss: {val_loss:.4f}. Model saved.")
+                    print(f"Best validation loss: {val_loss:.4f}.")
                 else:
                     self.patience_count += 1
                     print(f"No improvement in validation loss. Patience: {self.patience_count}/{self.patience_limit}")
@@ -368,20 +376,20 @@ def main():
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
     unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss())
-    unet_MSSSIMLoss.train(retrain=True)
+    unet_MSSSIMLoss.train(retrain=False)
     unet_MSSSIMLoss.test()
     
     unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss())
-    unet_SSIMLoss.train(retrain=True)
+    unet_SSIMLoss.train(retrain=False)
     unet_SSIMLoss.test()
 
-    unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
-    unet_gradloss.train(retrain=True)
-    unet_gradloss.test()
+    # unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
+    # unet_gradloss.train(retrain=False)
+    # unet_gradloss.test()
 
-    unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
-    unet_smoothgradloss.train(retrain=True)
-    unet_smoothgradloss.test()
+    # unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
+    # unet_smoothgradloss.train(retrain=False)
+    # unet_smoothgradloss.test()
 
     # visualization 
     regions = ["jutland", "zealand", "bornholm"]
@@ -395,11 +403,15 @@ def main():
     )[2]  # only test data is needed for visualization
 
     visualiser(
-        [unet_gradloss, unet_smoothgradloss, unet_SSIMLoss, unet_MSSSIMLoss],
+        [unet_SSIMLoss, unet_MSSSIMLoss],
         plotter_instance,
         visualization_data,
         model_config["DEVICE"],
         metrics,
+        min_val=data[3],
+        max_val=data[4],
+        mean=data[5],
+        std=data[6]
     )
 
     print("Finished running main")
