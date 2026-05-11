@@ -217,9 +217,7 @@ class plotter:
     def plot_metric_maps(self, loaders: list[DataLoader], pipeline, metrics: dict, mean_val: float, std_val: float, crs="EPSG:25832"):
         if not (self.save_plots or self.show_plots):
             return
-
         num_cols = len(metrics)
-
         fig, axes = plt.subplots(
             1,
             num_cols,
@@ -227,39 +225,40 @@ class plotter:
             squeeze=False,
         )
 
-        for col_idx, (metric_name, metric_func) in enumerate(metrics.items()):
-            ax = axes[0][col_idx]
-            records = []
+        records_by_metric = {metric_name: [] for metric_name in metrics.keys()}
 
-            for loader in loaders:
-                dataset = loader.dataset
-                # Pair each loaded batch with its exact dataset indices (works with shuffle and any batch size).
-                for batch_indices, (LR_batch, HR_batch) in tqdm(
-                    zip(loader.batch_sampler, loader),
-                    desc=f"Processing {metric_name} map",
-                    total=len(loader),
-                ):
-                    LR_batch = LR_batch.float().to(pipeline.device)
-                    HR_batch = HR_batch.float().to(pipeline.device)
+        for loader in loaders:
+            dataset = loader.dataset
+            # Pair each loaded batch with its exact dataset indices (works with shuffle and any batch size).
+            for batch_indices, (LR_batch, HR_batch) in tqdm(
+                zip(loader.batch_sampler, loader),
+                desc=f"Processing map for {dataset.category} dataset",
+                total=len(loader),
+            ):
+                LR_batch = LR_batch.float().to(pipeline.device)
+                HR_batch = HR_batch.float().to(pipeline.device)
 
-                    if isinstance(batch_indices, torch.Tensor):
-                        batch_indices = batch_indices.tolist()
+                if isinstance(batch_indices, torch.Tensor):
+                    batch_indices = batch_indices.tolist()
 
-                    pipeline.model.eval()
-                    for sample_offset, dataset_idx in enumerate(batch_indices):
-                        LR = LR_batch[sample_offset : sample_offset + 1]
-                        HR = HR_batch[sample_offset : sample_offset + 1]
-                        normalized_LR, normalized_HR = normalize_targets([LR, HR], mean=mean_val, std=std_val)
-                        with torch.no_grad():
-                            y_pred = pipeline.model(normalized_LR)
-                            y_pred_eval = denormalize_target(y_pred, mean=mean_val, std=std_val)
+                pipeline.model.eval()
+                for sample_offset, dataset_idx in enumerate(batch_indices):
+                    LR = LR_batch[sample_offset : sample_offset + 1]
+                    HR = HR_batch[sample_offset : sample_offset + 1]
+                    normalized_LR, normalized_HR = normalize_targets([LR, HR], mean=mean_val, std=std_val)
+                    with torch.no_grad():
+                        y_pred = pipeline.model(normalized_LR)
+                        y_pred_eval = denormalize_target(y_pred, mean=mean_val, std=std_val)
 
+                    bbox = dataset.get_bbox(int(dataset_idx))
+                    
+                    # Calculate all metrics for this sample
+                    for metric_name, metric_func in metrics.items():
                         metric_value = metric_func(y_pred_eval, HR)
                         if isinstance(metric_value, torch.Tensor):
                             metric_value = metric_value.detach().cpu().item()
 
-                        bbox = dataset.get_bbox(int(dataset_idx))
-                        records.append({
+                        records_by_metric[metric_name].append({
                             "metric_value": metric_value,
                             "geometry": box(
                                 bbox.left,
@@ -269,8 +268,10 @@ class plotter:
                             )
                         })
 
+        for col_idx, (metric_name, metric_func) in enumerate(metrics.items()):
+            ax = axes[0][col_idx]
             gdf = gpd.GeoDataFrame(
-                records,
+                records_by_metric[metric_name],
                 geometry="geometry",
                 crs=crs
             )
@@ -282,10 +283,9 @@ class plotter:
                 linewidth=0.2,
                 ax=ax
             )
-
             ax.set_title(f"{metric_name} Map", fontsize=12, pad=8)
             ax.set_axis_off()
-
+            
         fig.tight_layout()
 
         if self.save_plots and self.save_dir:

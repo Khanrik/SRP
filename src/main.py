@@ -347,7 +347,7 @@ def main():
         "LEARNING_RATE": 5e-5,
         "DYNAMIC_LR": True,
         "BATCH_SIZE": 3,
-        "EPOCHS": 38,
+        "EPOCHS": 250,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
@@ -369,17 +369,20 @@ def main():
         hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
+        include_plot=False
     )
     model_config["data"] = data
 
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
-    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss())
+    data_range = data[4] - data[3]
+
+    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=data_range))
     unet_MSSSIMLoss.train(retrain=True)
     unet_MSSSIMLoss.test()
     
-    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss())
+    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=data_range))
     unet_SSIMLoss.train(retrain=True)
     unet_SSIMLoss.test()
 
@@ -416,6 +419,7 @@ def main():
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
+        category="unused",
     )[2]
 
     visualiser(

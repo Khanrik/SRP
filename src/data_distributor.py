@@ -174,7 +174,7 @@ def get_base_dataset(lr_data_dir_list: list[Path],
         val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda)
     test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda)
     
-    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size, include_plot=False) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
+    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size, include_plot=include_plot) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
 
     if ((train_dataloader is None or val_dataloader is None) and test_dataloader is None):
         raise ValueError(
@@ -223,7 +223,9 @@ def filter_min_outliers(data, z_threshold=3):
     return filtered_data, values_disregarded_amount
 
 
-def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int, include_plot: bool = False) -> tuple[float, float, float, float]:
+def compute_extremal_pixel_value(dataset: DatasetInterface, 
+                                 batch_size: int, 
+                                 include_plot: bool = False) -> tuple[float, float, float, float]:
     """Computes the minimum and maximum pixel values across the entire dataset
     
     Returns:
