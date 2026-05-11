@@ -433,7 +433,8 @@ def main():
         min_val=data[3],
         max_val=data[4],
         mean=data[5],
-        std=data[6]
+        std=data[6],
+        include_datasplit=False # only worth running once to get the map saved
     )
 
     print("Finished running main")
