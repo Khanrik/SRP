@@ -100,6 +100,6 @@ def visualiser(ModelPipelineList, select_model_idx: int, plotter_instance: plott
     
     if include_datasplit:
         plotter_instance.plot_datasplit_map(denmark_data)
-    plotter_instance.plot_metric_maps(denmark_data, ModelPipelineList[select_model_idx], metrics)
+    plotter_instance.plot_metric_maps(denmark_data, ModelPipelineList[select_model_idx], metrics, mean_val=mean, std_val=std)
     
     return

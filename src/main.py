@@ -214,7 +214,7 @@ class ModelPipeline:
                     )
                 print(
                     f"Epoch {epoch + 1} Val Loss: {curr_metrics[0]:.4f}"
-                )
+                ) 
                 # Validation loop, i.e. training loop but without backpropagation and with torch.no_grad() to save memory and computations.
                 time_start = time.time()
                 self.model.eval()
@@ -342,8 +342,7 @@ def main():
     current_dir = Path(__file__).resolve().parent
 
     # Initializing hyperparameters, metrics and configurations for the model pipeline
-    # metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
-    metrics = {"PSNR": PSNR, "SSIM": SSIM}
+    metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
     model_config = {
         "LEARNING_RATE": 5e-5,
         "DYNAMIC_LR": True,
@@ -358,8 +357,8 @@ def main():
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=True,
-        save_plots=False,
+        show_plots=False,
+        save_plots=True,
     )
 
     # Initializing data
@@ -377,11 +376,11 @@ def main():
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
     unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss())
-    unet_MSSSIMLoss.train(retrain=False)
+    unet_MSSSIMLoss.train(retrain=True)
     unet_MSSSIMLoss.test()
     
     unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss())
-    unet_SSIMLoss.train(retrain=False)
+    unet_SSIMLoss.train(retrain=True)
     unet_SSIMLoss.test()
 
     # unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())

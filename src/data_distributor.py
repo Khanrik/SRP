@@ -148,7 +148,8 @@ def get_base_dataset(lr_data_dir_list: list[Path],
                      division: DataDivision = DataDivision(train=0.8, val=0.1, test=0.1),
                      randomize: bool = True,
                      seed: int = None,
-                     category: str = None) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
+                     category: str = None,
+                     include_plot: bool = False) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
     if division.train + division.val + division.test != 1.0:
         raise ValueError(f"Data division proportions must sum to 1.0. Got {division.train} + {division.val} + {division.test} = {division.train + division.val + division.test}")
     all_pairs = _pair_files(lr_data_dir_list, hr_data_dir_list)
@@ -173,7 +174,7 @@ def get_base_dataset(lr_data_dir_list: list[Path],
         val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda)
     test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda)
     
-    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
+    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size, include_plot=False) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
 
     if ((train_dataloader is None or val_dataloader is None) and test_dataloader is None):
         raise ValueError(
@@ -222,7 +223,7 @@ def filter_min_outliers(data, z_threshold=3):
     return filtered_data, values_disregarded_amount
 
 
-def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int) -> tuple[float, float, float, float]:
+def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int, include_plot: bool = False) -> tuple[float, float, float, float]:
     """Computes the minimum and maximum pixel values across the entire dataset
     
     Returns:
@@ -265,20 +266,21 @@ def compute_extremal_pixel_value(dataset: DatasetInterface, batch_size: int) -> 
     dataset_min_pixel_value = min(min_pixel_values)
     dataset_max_pixel_value = max(max_pixel_values) if max_pixel_values else 0.0
     
-    # plot the box plot of the max and min pixel values across the dataset, lr beside hr, in the same figure with two subplots
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 2, 1)
-    plt.boxplot([filtered_min_pixel_values_lr, filtered_min_pixel_values_hr], labels=['LR Min Pixel Values', 'HR Min Pixel Values'])
-    plt.ylabel('Pixel Value')
-    plt.title('Histogram of Minimum Pixel Values')
-    plt.subplot(1, 2, 2)
-    plt.boxplot([max_pixel_values_lr, max_pixel_values_hr], labels=['LR Max Pixel Values', 'HR Max Pixel Values'])
-    plt.ylabel('Pixel Value')
-    plt.title('Histogram of Maximum Pixel Values')
-    plt.suptitle(f'Box Plots of Minimum and Maximum Pixel Values in the Dataset\n(Disregarding {amount_of_min_values_disregarded} values under -800 for min pixel value)')
+    if include_plot:
+        # plot the box plot of the max and min pixel values across the dataset, lr beside hr, in the same figure with two subplots
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 2, 1)
+        plt.boxplot([filtered_min_pixel_values_lr, filtered_min_pixel_values_hr], labels=['LR Min Pixel Values', 'HR Min Pixel Values'])
+        plt.ylabel('Pixel Value')
+        plt.title('Histogram of Minimum Pixel Values')
+        plt.subplot(1, 2, 2)
+        plt.boxplot([max_pixel_values_lr, max_pixel_values_hr], labels=['LR Max Pixel Values', 'HR Max Pixel Values'])
+        plt.ylabel('Pixel Value')
+        plt.title('Histogram of Maximum Pixel Values')
+        plt.suptitle(f'Box Plots of Minimum and Maximum Pixel Values in the Dataset\n(Disregarding {amount_of_min_values_disregarded} values under -800 for min pixel value)')
 
-    plt.tight_layout()
-    plt.show()
+        plt.tight_layout()
+        plt.show()
 
     print (f"Dataset pixel value statistics - \nMin: {round(dataset_min_pixel_value, 4)}, Max: {round(dataset_max_pixel_value, 4)}, Mean: {round(mean_pixel_value, 4)}, Std: {round(std_pixel_value, 4)}\n")
     print(f"Disregarding {amount_of_min_values_disregarded} minimum pixel values under -800 for the dataset min pixel value calculation.")

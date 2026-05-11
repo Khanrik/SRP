@@ -214,7 +214,7 @@ class plotter:
             plt.show()
 
 
-    def plot_metric_maps(self, loaders: list[DataLoader], pipeline, metrics: dict, crs="EPSG:25832"):
+    def plot_metric_maps(self, loaders: list[DataLoader], pipeline, metrics: dict, mean_val: float, std_val: float, crs="EPSG:25832"):
         if not (self.save_plots or self.show_plots):
             return
 
@@ -249,10 +249,10 @@ class plotter:
                     for sample_offset, dataset_idx in enumerate(batch_indices):
                         LR = LR_batch[sample_offset : sample_offset + 1]
                         HR = HR_batch[sample_offset : sample_offset + 1]
-                        normalized_LR, normalized_HR, min_val, max_val = normalize_targets(LR, HR)
+                        normalized_LR, normalized_HR = normalize_targets([LR, HR], mean=mean_val, std=std_val)
                         with torch.no_grad():
                             y_pred = pipeline.model(normalized_LR)
-                            y_pred_eval = denormalize_target(y_pred, min_val, max_val)
+                            y_pred_eval = denormalize_target(y_pred, mean=mean_val, std=std_val)
 
                         metric_value = metric_func(y_pred_eval, HR)
                         if isinstance(metric_value, torch.Tensor):
