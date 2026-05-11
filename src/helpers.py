@@ -12,6 +12,79 @@ class results:
     name: str
     metrics: list[tuple[str, float]]
 
+@dataclass
+class BoundingBoxDegree:
+    lon_min: float
+    lat_min: float
+    lon_max: float
+    lat_max: float
+
+@dataclass
+class BoundingBoxMeter:
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+
+@dataclass
+class DataDivision:
+    """A class to define the division of data into training, validation, and test sets.
+
+    All floats must be between 0 and 1 and their sum must equal 1.
+    
+    It is possible to set a paramter to 0, meaning that no data will be assigned to that set. 
+
+    If `no_division` is set to True, all data will be written to a single folder (`output_path`) instead of being divided into train, val, and test folders.
+    """
+    train: float = 0
+    val: float = 0
+    test: float = 0
+    no_division: bool = False
+
+    def __post_init__(self):
+        total = sum(self.__dict__.values())
+        if self.no_division:
+            return
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError("The sum of non bool train, val, and test proportions must equal 1.")
+        
+
+
+
+class DatasetInterface(Dataset):
+    def __init__(self,
+                 data_pairs: list[DataPair],
+                 lr_target_size: tuple[int, int] = (128, 128),
+                 loading_description: str = "Loading dataset"):
+        self.lr_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize(lr_target_size)
+        ])
+        self.hr_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((lr_target_size[0] * 3, lr_target_size[1] * 3))
+        ])
+
+        self.lr = []
+        self.hr = []
+        for pair in tqdm(data_pairs, desc=loading_description):
+            self.lr.append(Image.open(pair.lr))
+            self.hr.append(Image.open(pair.hr))
+
+    def __add__(self, other):
+        combined = copy.deepcopy(self)
+        combined.lr += other.lr 
+        combined.hr += other.hr
+        return combined
+
+    def __len__(self):
+        return len(self.lr)
+
+    def __getitem__(self, idx: int):
+        return  self.lr_transform(self.lr[idx]).float(), \
+                self.hr_transform(self.hr[idx]).float()
+
+
 def denormalize_target(target: torch.Tensor, min_pixel_value: float, max_pixel_value: float) -> torch.Tensor:
     """
     Args:
@@ -139,21 +212,34 @@ def profile_layer_activations(model: nn.Module,
     plt.show()
     profile_layers_once = False
 
-def normalize_targets(target: torch.Tensor, opt_target: torch.Tensor = None, min_pixel_value: float = None, max_pixel_value: float = None) -> tuple[torch.Tensor, torch.Tensor, float, float]:
-    """Normalizes a tensor or pair of tensors between 0 and 1
+def normalize_targets(targets: list[torch.Tensor], mean: float, std: float) -> list[torch.Tensor]:
+    """Normalizes a tensor with Z-score normalization
 
     Args:
-        target: The target tensor to normalize
-        opt_target: An optional tensor to pair with the target. Not including opt_target will normalize target based on its own min and max values.
-        min_pixel_value: The minimum pixel value in the dataset. If None, it will use the relative min value between target and opt_target.
-        max_pixel_value: The maximum pixel value in the dataset. If None, it will use the relative max value between target and opt_target.
+        targets: A list of target tensors to be normalized.
+        mean: The mean pixel value in the dataset.
+        std: The standard deviation of pixel values in the dataset.
 
     Returns:
-        (target, opt_target, min_pixel_value, max_pixel_value): Normalized pair of tensors (`target == opt_target` if opt_target is not provided) and the min and max pixel values used for normalization
+        A list of normalized tensors.
     """
-    opt_target = opt_target if opt_target is not None else target
-    max_pixel_value = max_pixel_value or max(target.max().item(), opt_target.max().item())
-    min_pixel_value = min_pixel_value or min(target.min().item(), opt_target.min().item())
-    if max_pixel_value == min_pixel_value:
-        return target, opt_target, min_pixel_value, max_pixel_value
-    return (target - min_pixel_value) / (max_pixel_value - min_pixel_value), (opt_target - min_pixel_value) / (max_pixel_value - min_pixel_value), min_pixel_value, max_pixel_value
+    if not isinstance(targets, list):
+        targets = [targets]
+
+    normalized_targets = []
+
+    for target in targets:
+        normalized_targets.append((target - mean) / std)
+
+    return normalized_targets if len(normalized_targets) > 1 else normalized_targets[0]
+
+def denormalize_target(target: torch.Tensor, mean: float, std: float) -> torch.Tensor:
+    """
+    Args:
+        target: The normalized target tensor that is normalized
+        mean: The mean pixel value used for normalization.
+        std: The standard deviation of pixel values used for normalization.
+    Returns:
+        
+    """
+    return target * std + mean

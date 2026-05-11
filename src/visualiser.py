@@ -2,8 +2,9 @@ from helpers import results, normalize_targets, denormalize_target
 import torch
 from tqdm import tqdm
 from plotter import plotter
+from inspect import signature
 
-def visualiser(ModelPipelineList, select_model_idx: int, plotter_instance: plotter, selected_test_images, denmark_data: list, device, metrics, include_datasplit = True):
+def visualiser(ModelPipelineList, select_model_idx: int, plotter_instance: plotter, selected_test_images, denmark_data: list, device, metrics, include_datasplit = True, min_val=0.0, max_val=1.0, mean=None, std=None):
     """Returns: None. Tests multiple model pipelines and prints their test losses and difference coefficients for comparison.
     Args:
         ModelPipelineList: A list of ModelPipeline instances to be tested.
@@ -14,6 +15,10 @@ def visualiser(ModelPipelineList, select_model_idx: int, plotter_instance: plott
         device: The device to run the model on.
         metrics: A dictionary of metric functions to be used for evaluation.
         include_datasplit: A boolean indicating whether to include the data split map in the visualization.
+        min_val: The minimum possible value of the images.
+        max_val: The maximum possible value of the images.
+        mean: The mean value for normalization.
+        std: The standard deviation for normalization.
     """
     if not ModelPipelineList:
         raise ValueError("visualiser requires at least one ModelPipeline instance.")
@@ -24,7 +29,13 @@ def visualiser(ModelPipelineList, select_model_idx: int, plotter_instance: plott
     def _metric_items(prediction, target):
         metric_items = []
         for metric_name, metric_func in metrics.items():
-            metric_value = metric_func(prediction.float(), target)
+            input_parameters = signature(metric_func).parameters.keys()
+            if "data_range" in input_parameters:
+                metric_value = metric_func(prediction.float(), target, data_range=max_val - min_val)
+            elif "max_value" in input_parameters:
+                metric_value = metric_func(prediction.float(), target, max_value=max_val)
+            else:
+                metric_value = metric_func(prediction.float(), target)
             metric_items.append((metric_name, metric_value))
         return metric_items
 
@@ -34,8 +45,7 @@ def visualiser(ModelPipelineList, select_model_idx: int, plotter_instance: plott
         # creating LR and HR tensors for the batch and moving them to the correct device.
         LR = LR.float().to(device)
         HR = HR.float().to(device)
-        normalized_LR, _, min_val, max_val = normalize_targets(LR)
-        normalized_HR, _, _, _ = normalize_targets(HR)
+        normalized_LR = normalize_targets(targets=LR, mean=mean, std=std)
         # create bilinear upsampled image for comparison in the horizontal results plot, and calculate metrics for it as well.
         bilinear = torch.nn.functional.interpolate(
             LR,
@@ -67,7 +77,7 @@ def visualiser(ModelPipelineList, select_model_idx: int, plotter_instance: plott
             pipeline.model.eval()
             with torch.no_grad():
                 y_pred = pipeline.model(normalized_LR)
-                y_pred_eval = denormalize_target(y_pred, min_val, max_val)
+                y_pred_eval = denormalize_target(y_pred, mean=mean, std=std)
                             
             pred_results=results(
                 image=y_pred_eval[0],
