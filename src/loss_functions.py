@@ -1,5 +1,8 @@
 import torch.nn as nn
-from pytorch_msssim import ssim as SSIM  # type: ignore
+import torch.nn.functional as F
+from torch import Tensor
+from typing import List, Optional, Tuple, Union
+from pytorch_msssim import ms_ssim as MSSSIM, ssim as SSIM  # type: ignore
 
 class SmoothGradLoss(nn.Module):
     def __init__(self, beta=1.0, lambda_grad=0.2):
@@ -78,3 +81,31 @@ class SSIMLoss(nn.Module):
 
         ssim_score = SSIM(pred, target, data_range=self.data_range, win_size=self.window_size, win_sigma=self.sigma,size_average=True)
         return 1 - ssim_score
+
+
+class MSSSIMLoss(nn.Module):
+    def __init__(self, window_size=11, sigma=1.5, data_range=1.0, k1=0.01, k2=0.03):
+        super().__init__()
+        """Returns: Self. Differentiable MSSSIM loss.
+        Args:
+            window_size: Gaussian window size used for local statistics.
+            sigma: Standard deviation for the Gaussian window.
+            data_range: Expected dynamic range of the input tensors.
+            k1: SSIM stability constant for the luminance term.
+            k2: SSIM stability constant for the contrast/structure term.
+        """
+        self.window_size = window_size
+        self.sigma = sigma
+        self.data_range = data_range
+        self.k1 = k1
+        self.k2 = k2
+
+    def forward(self, pred, target):
+        """Returns: 1 - MSSSIM score.
+        Args:
+            pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
+            target: The ground truth target tensor of the same shape as pred.
+        """
+
+        msssim_score = MSSSIM(pred, target, data_range=self.data_range, win_size=self.window_size, win_sigma=self.sigma,size_average=True)
+        return 1 - msssim_score

@@ -375,6 +375,10 @@ def main():
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
+    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss())
+    unet_MSSSIMLoss.train(retrain=False)
+    unet_MSSSIMLoss.test()
+    
     unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss())
     unet_SSIMLoss.train(retrain=False)
     unet_SSIMLoss.test()
@@ -399,7 +403,7 @@ def main():
     )[2]  # only test data is needed for visualization
 
     visualiser(
-        [unet_SSIMLoss],
+        [unet_SSIMLoss, unet_MSSSIMLoss],
         plotter_instance,
         visualization_data,
         model_config["DEVICE"],
