@@ -12,5 +12,6 @@ rioxarray
 xarray
 xarray-spatial
 datashader
-skimage
+scikit-image
 geopandas
+pytorch-msssim
