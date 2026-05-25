@@ -395,38 +395,44 @@ def main():
 
 
 
-    # unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange))
-    # unet_MSSSIMLoss.train(retrain=False)
-    # unet_MSSSIMLoss.test()
+    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss))
+    unet_MSSSIMLoss.train(retrain=True)
+    unet_MSSSIMLoss.test()
 
 
     unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss))
     unet_SSIMLoss.train(retrain=True)
     unet_SSIMLoss.test()
 
-    # unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange))
-    # unet_SSIMLoss_SGD.train(retrain=True)
-    # unet_SSIMLoss_SGD.test()
+    unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss))
+    unet_SSIMLoss_SGD.train(retrain=True)
+    unet_SSIMLoss_SGD.test()
     
-    # unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange))
-    # unet_SSIMLoss_RMS.train(retrain=True)
-    # unet_SSIMLoss_RMS.test()
+    unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss))
+    unet_SSIMLoss_RMS.train(retrain=True)
+    unet_SSIMLoss_RMS.test()
 
-    # unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5, data_range=datarange))
-    # unet_MSESSIM_Loss.train(retrain=False)
-    # unet_MSESSIM_Loss.test()
+    unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss))
+    unet_MSESSIM_Loss.train(retrain=True)
+    unet_MSESSIM_Loss.test()
 
-    # unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
-    # unet_gradloss.train(retrain=False)
-    # unet_gradloss.test()
+    unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
+    unet_gradloss.train(retrain=True)
+    unet_gradloss.test()
     
-    # unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
-    # unet_smoothgradloss.train(retrain=False)
-    # unet_smoothgradloss.test()
+    unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
+    unet_smoothgradloss.train(retrain=True)
+    unet_smoothgradloss.test()
 
-    # LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    # LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange))
-    # LoGSRN_SSIMLoss.train(retrain=False)
+    LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
+
+    LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss))
+    LoGSRN_SSIMLoss.train(retrain=True)
+    LoGSRN_SSIMLoss.test()
+    
+    LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss))
+    LoGSRN_SSIMLoss.train(retrain=True)
+    LoGSRN_SSIMLoss.test()
 
 
     # visualization 
