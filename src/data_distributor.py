@@ -7,6 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from scipy import stats
 import copy
+import logging
 import rasterio
 from torchvision import transforms
 from PIL import Image
@@ -149,7 +150,8 @@ def get_base_dataset(lr_data_dir_list: list[Path],
                      randomize: bool = True,
                      seed: int = 12345678,
                      category: str = None,
-                     include_plot: bool = False) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
+                     include_plot: bool = False,
+                     logger: logging.Logger = None) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
     if division.train + division.val + division.test != 1.0:
         raise ValueError(f"Data division proportions must sum to 1.0. Got {division.train} + {division.val} + {division.test} = {division.train + division.val + division.test}")
     all_pairs = _pair_files(lr_data_dir_list, hr_data_dir_list)
@@ -174,7 +176,7 @@ def get_base_dataset(lr_data_dir_list: list[Path],
         val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda)
     test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda)
     
-    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size, include_plot=include_plot) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
+    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size, include_plot=include_plot, logger=logger) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
 
     if ((train_dataloader is None or val_dataloader is None) and test_dataloader is None):
         raise ValueError(
@@ -225,7 +227,8 @@ def filter_min_outliers(data, z_threshold=3):
 
 def compute_extremal_pixel_value(dataset: DatasetInterface, 
                                  batch_size: int, 
-                                 include_plot: bool = False) -> tuple[float, float, float, float]:
+                                 include_plot: bool = False,
+                                 logger: logging.Logger = None) -> tuple[float, float, float, float]:
     """Computes the minimum and maximum pixel values across the entire dataset
     
     Returns:
@@ -284,8 +287,9 @@ def compute_extremal_pixel_value(dataset: DatasetInterface,
         plt.tight_layout()
         plt.show()
 
-    print (f"Dataset pixel value statistics - \nMin: {round(dataset_min_pixel_value, 4)}, Max: {round(dataset_max_pixel_value, 4)}, Mean: {round(mean_pixel_value, 4)}, Std: {round(std_pixel_value, 4)}\n")
-    print(f"Disregarding {amount_of_min_values_disregarded} minimum pixel values under -800 for the dataset min pixel value calculation.")
+    if logger is not None:
+        logger.info(f"Dataset pixel value statistics - \nMin: {round(dataset_min_pixel_value, 4)}, Max: {round(dataset_max_pixel_value, 4)}, Mean: {round(mean_pixel_value, 4)}, Std: {round(std_pixel_value, 4)}\n")
+        logger.info(f"Disregarding {amount_of_min_values_disregarded} minimum pixel values under -800 for the dataset min pixel value calculation.")
 
     return dataset_min_pixel_value, dataset_max_pixel_value, mean_pixel_value, std_pixel_value
 
@@ -293,10 +297,19 @@ def compute_extremal_pixel_value(dataset: DatasetInterface,
 
 
 if __name__ == "__main__":
+    import time
+    current_dir = Path(__file__).resolve().parent
+    logfile = current_dir.parent / "checkpoints" / "logs" / f"data_distributor_{time.strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    logfile.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(filename=str(logfile),
+                        format='%(asctime)s %(levelname)s: %(message)s',
+                        filemode='w')
+    logger = logging.getLogger()
+    
     lr_dirs = [DATA_DIR / "copernicus" / region for region in ["jutland", "funen"]]
     hr_dirs = [DATA_DIR / "dataforsyningen" / region for region in ["jutland", "funen"]]
     
     division = DataDivision(train=0.8, val=0.1, test=0.1)
-    data_splits = get_base_dataset(lr_dirs, hr_dirs, division=division)
+    data_splits = get_base_dataset(lr_dirs, hr_dirs, division=division, logger=logger)
 
-    print(f"Train: {len(data_splits.train)} pairs, Val: {len(data_splits.val)} pairs, Test: {len(data_splits.test)} pairs, Total: {len(data_splits.dataset)} pairs")
+    logger.info(f"Train: {len(data_splits.train)} pairs, Val: {len(data_splits.val)} pairs, Test: {len(data_splits.test)} pairs, Total: {len(data_splits.dataset)} pairs")
