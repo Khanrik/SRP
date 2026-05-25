@@ -10,7 +10,7 @@ from pathlib import Path
 from unet import UNet
 from helpers import *  # noqa: F403
 from plotter import plotter
-from data_distributor import get_base_dataset
+from data_distributor import DatasetInterface, get_base_dataset, DataDivision, prepare_dataloader
 from typing import Literal
 import time
 from loss_functions import *  # noqa: F403
@@ -214,7 +214,7 @@ class ModelPipeline:
                     )
                 print(
                     f"Epoch {epoch + 1} Val Loss: {curr_metrics[0]:.4f}"
-                )
+                ) 
                 # Validation loop, i.e. training loop but without backpropagation and with torch.no_grad() to save memory and computations.
                 time_start = time.time()
                 self.model.eval()
@@ -347,7 +347,7 @@ def main():
         "LEARNING_RATE": 5e-5,
         "DYNAMIC_LR": True,
         "BATCH_SIZE": 3,
-        "EPOCHS": 38,
+        "EPOCHS": 250,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
@@ -357,7 +357,7 @@ def main():
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=True,
+        show_plots=False,
         save_plots=True,
     )
 
@@ -369,24 +369,27 @@ def main():
         hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
+        include_plot=False
     )
     model_config["data"] = data
 
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
-    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss())
-    unet_MSSSIMLoss.train(retrain=False)
+    data_range = data[4] - data[3]
+
+    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=data_range))
+    unet_MSSSIMLoss.train(retrain=True)
     unet_MSSSIMLoss.test()
     
-    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss())
-    unet_SSIMLoss.train(retrain=False)
+    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=data_range))
+    unet_SSIMLoss.train(retrain=True)
     unet_SSIMLoss.test()
 
     # unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
     # unet_gradloss.train(retrain=False)
     # unet_gradloss.test()
-
+    
     # unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
     # unet_smoothgradloss.train(retrain=False)
     # unet_smoothgradloss.test()
@@ -400,18 +403,32 @@ def main():
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         randomize=False,
+        category="visualization"
     )[2]  # only test data is needed for visualization
+
+    regions = ["zealand", "bornholm"]
+    untouched_areas = get_base_dataset(
+        lr_data_dir_list=[data_root / "copernicus" / region for region in regions],
+        hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
+        batch_size=model_config["BATCH_SIZE"],
+        cuda=model_config["DEVICE"] == "cuda",
+        division=DataDivision(train=0.0, val=0.0, test=1.0),
+        category="unused",
+    )[2]
 
     visualiser(
         [unet_SSIMLoss, unet_MSSSIMLoss],
+        0,
         plotter_instance,
         visualization_data,
+        list(data[:3]) + [untouched_areas, visualization_data],
         model_config["DEVICE"],
         metrics,
         min_val=data[3],
         max_val=data[4],
         mean=data[5],
-        std=data[6]
+        std=data[6],
+        include_datasplit=False # only worth running once to get the map saved
     )
 
     print("Finished running main")
