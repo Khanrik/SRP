@@ -8,7 +8,7 @@ import xarray as xr
 from planetary_computer import sign
 from pathlib import Path
 import numpy as np
-from helpers import BoundingBoxDegree, BoundingBoxMeter
+from data_distributor import BoundingBoxDegree, BoundingBoxMeter
 from pyproj import Transformer
 from tqdm import tqdm
 
