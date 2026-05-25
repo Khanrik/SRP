@@ -381,7 +381,9 @@ def main():
         cuda=model_config["DEVICE"] == "cuda",
     )
     model_config["data"] = data
+    datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
 
+    print(datarange_for_loss)
     model_config_SGD = copy.deepcopy(model_config)
     model_config_SGD["OPTIMIZER"] = optim.SGD
     model_config_RMS = copy.deepcopy(model_config)
@@ -392,20 +394,24 @@ def main():
 
 
 
-    # unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss())
+    # unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange))
     # unet_MSSSIMLoss.train(retrain=False)
     # unet_MSSSIMLoss.test()
 
 
-    unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss())
-    unet_SSIMLoss_SGD.train(retrain=True)
-    unet_SSIMLoss_SGD.test()
-    
-    unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss())
-    unet_SSIMLoss_RMS.train(retrain=True)
-    unet_SSIMLoss_RMS.test()
+    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss))
+    unet_SSIMLoss.train(retrain=True)
+    unet_SSIMLoss.test()
 
-    # unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5))
+    # unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange))
+    # unet_SSIMLoss_SGD.train(retrain=True)
+    # unet_SSIMLoss_SGD.test()
+    
+    # unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange))
+    # unet_SSIMLoss_RMS.train(retrain=True)
+    # unet_SSIMLoss_RMS.test()
+
+    # unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5, data_range=datarange))
     # unet_MSESSIM_Loss.train(retrain=False)
     # unet_MSESSIM_Loss.test()
 
@@ -418,7 +424,7 @@ def main():
     # unet_smoothgradloss.test()
 
     # LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    # LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss())
+    # LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange))
     # LoGSRN_SSIMLoss.train(retrain=False)
 
 
@@ -434,7 +440,7 @@ def main():
     )[2]  # only test data is needed for visualization
 
     visualiser(
-        [unet_SSIMLoss, unet_MSSSIMLoss, LoGSRN_SSIMLoss, unet_MSESSIM_Loss],
+        [unet_SSIMLoss],
         plotter_instance,
         visualization_data,
         model_config["DEVICE"],
