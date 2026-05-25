@@ -18,6 +18,8 @@ from visualiser import visualiser
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from metrics import *  # noqa: F403
 from inspect import signature
+from logsrn import LoGSRN
+from cnn import CNN
 
 
 
@@ -175,6 +177,13 @@ class ModelPipeline:
         Args:
 
         """
+        if self.optimizer.__class__.__name__ != "AdamW":
+            pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{self.optimizer.__class__.__name__}"
+            print("Not using AdamW")
+        else:
+            pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}"
+            print("Using AdamW")
+
         if retrain:
             # initializing metrics
             timers = {
@@ -213,8 +222,8 @@ class ModelPipeline:
                         f"Epoch {epoch + 1} Train {metric_name}: {curr_metrics[i + 1]:.4f}"
                     )
                 print(
-                    f"Epoch {epoch + 1} Val Loss: {curr_metrics[0]:.4f}"
-                ) 
+                    f"Epoch {epoch + 1} Train Loss: {curr_metrics[0]:.4f}"
+                )
                 # Validation loop, i.e. training loop but without backpropagation and with torch.no_grad() to save memory and computations.
                 time_start = time.time()
                 self.model.eval()
@@ -265,7 +274,7 @@ class ModelPipeline:
             os.makedirs(path, exist_ok=True)
             torch.save(
                 self.model.state_dict(),
-                os.path.join(path, f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}.pth"),
+                os.path.join(path, f"{pth_path_name}.pth"),
             )
 
             archives = os.path.join(path, "archives")
@@ -275,7 +284,7 @@ class ModelPipeline:
                 self.model.state_dict(),
                 os.path.join(
                     archives,
-                    f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth",
+                    f"{pth_path_name}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth",
                 ),
             )
 
@@ -289,10 +298,10 @@ class ModelPipeline:
             if not (
                 Path(__file__).resolve().parent.parent
                 / "checkpoints"
-                / f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}.pth"
+                / f"{pth_path_name}.pth"
             ).exists():
                 print(
-                    f"No existing model weights found for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__}. Cannot skip retraining."
+                    f"No existing model weights found for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}. Cannot skip retraining."
                 )
                 self.train(retrain=True)
                 return
@@ -308,7 +317,7 @@ class ModelPipeline:
                 model_pth = (
                     Path(__file__).resolve().parent.parent
                     / "checkpoints"
-                    / f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}.pth"
+                    / f"{pth_path_name}.pth"
                 )
             self.model.load_state_dict(
                 torch.load(
@@ -347,7 +356,7 @@ def main():
         "LEARNING_RATE": 5e-5,
         "DYNAMIC_LR": True,
         "BATCH_SIZE": 3,
-        "EPOCHS": 250,
+        "EPOCHS": 1000000,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
         "OPTIMIZER": optim.AdamW,
@@ -360,6 +369,7 @@ def main():
         show_plots=False,
         save_plots=True,
     )
+    
 
     # Initializing data
     data_root = current_dir.parent / "data"
@@ -373,18 +383,32 @@ def main():
     )
     model_config["data"] = data
 
+    model_config_SGD = copy.deepcopy(model_config)
+    model_config_SGD["OPTIMIZER"] = optim.SGD
+    model_config_RMS = copy.deepcopy(model_config)
+    model_config_RMS["OPTIMIZER"] = optim.RMSprop
+
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
-    data_range = data[4] - data[3]
 
-    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=data_range))
-    unet_MSSSIMLoss.train(retrain=True)
-    unet_MSSSIMLoss.test()
+
+    # unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss())
+    # unet_MSSSIMLoss.train(retrain=False)
+    # unet_MSSSIMLoss.test()
+
+
+    unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss())
+    unet_SSIMLoss_SGD.train(retrain=True)
+    unet_SSIMLoss_SGD.test()
     
-    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=data_range))
-    unet_SSIMLoss.train(retrain=True)
-    unet_SSIMLoss.test()
+    unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss())
+    unet_SSIMLoss_RMS.train(retrain=True)
+    unet_SSIMLoss_RMS.test()
+
+    # unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5))
+    # unet_MSESSIM_Loss.train(retrain=False)
+    # unet_MSESSIM_Loss.test()
 
     # unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
     # unet_gradloss.train(retrain=False)
@@ -393,6 +417,11 @@ def main():
     # unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
     # unet_smoothgradloss.train(retrain=False)
     # unet_smoothgradloss.test()
+
+    # LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
+    # LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss())
+    # LoGSRN_SSIMLoss.train(retrain=False)
+
 
     # visualization 
     regions = ["jutland", "zealand", "bornholm"]
@@ -417,8 +446,7 @@ def main():
     )[2]
 
     visualiser(
-        [unet_SSIMLoss, unet_MSSSIMLoss],
-        0,
+        [unet_SSIMLoss, unet_MSSSIMLoss, LoGSRN_SSIMLoss, unet_MSESSIM_Loss],
         plotter_instance,
         visualization_data,
         list(data[:3]) + [untouched_areas, visualization_data],
