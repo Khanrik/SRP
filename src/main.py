@@ -1,5 +1,6 @@
 import os
 import copy
+import logging
 import torch
 import torch.nn as nn
 import numpy as np
@@ -29,9 +30,11 @@ class ModelPipeline:
         model: nn.Module,
         model_config: dict,
         plotter: plotter,
+        logger: logging.Logger,
         max_pixels_per_image: int = 1024 * 1024,
         target_norm_eps: float = 1e-6,
         criterion: nn.Module = GradLoss(),
+        name: str = "model"
     ):
         """Returns: Self. Initializes the ModelPipeline with the model, optimizer, loss function, device, and learning rate.
         Args:
@@ -66,6 +69,12 @@ class ModelPipeline:
         self.max_pixel_value = model_config["data"][4]
         self.mean_pixel_value = model_config["data"][5]
         self.std_pixel_value = model_config["data"][6]
+        self.train_time = 0
+        self.val_time = 0
+
+        self.name = name
+        self.logger = logger
+        self.logger.info(f"\nInitialized ModelPipeline for {name}")
 
         # Use ReduceLROnPlateau to adapt LR based on validation loss
         self.scheduler = ReduceLROnPlateau(
@@ -96,7 +105,7 @@ class ModelPipeline:
             running[metric_name] = []
         running["Loss"] = []
 
-        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True)):
+        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.name}")):
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
@@ -104,7 +113,7 @@ class ModelPipeline:
 
             if epoch == 0 and idx == 0:
                 # Profiling for memory usage stats to avoid OOM errors.
-                profile_layer_activations(self.model, normalized_LR, self.cuda, self.profile_layers_once)
+                profile_layer_activations(self.model, normalized_LR, self.cuda, self.profile_layers_once, logger=self.logger)
 
             # Using autocasting for the forward pass and loss calculation to reduce memory usage.
             # If cuda is false, this will just be a nullcontext and have no effect.
@@ -165,7 +174,7 @@ class ModelPipeline:
             if idx == 0:
                 if training_state != "test":
                     log_shape_and_memory(
-                        training_state, epoch, idx, LR, HR, y_pred_denorm, self.cuda
+                        training_state, epoch, idx, LR, HR, y_pred_denorm, self.cuda, self.logger
                     )
 
         return [np.mean(running[key]) for key in ["Loss"] + list(self.metrics.keys())]
@@ -214,14 +223,14 @@ class ModelPipeline:
                 )
                 timers["train"] += time.time() - time_start
 
-                print("-" * 30)
+                self.logger.info("-" * 30)
                 train_metrics["Loss"].append(curr_metrics[0])
                 for i, metric_name in enumerate(self.metrics.keys()):
                     train_metrics[metric_name].append(curr_metrics[i + 1])
-                    print(
+                    self.logger.info(
                         f"Epoch {epoch + 1} Train {metric_name}: {curr_metrics[i + 1]:.4f}"
                     )
-                print(
+                self.logger.info(
                     f"Epoch {epoch + 1} Train Loss: {curr_metrics[0]:.4f}"
                 )
                 # Validation loop, i.e. training loop but without backpropagation and with torch.no_grad() to save memory and computations.
@@ -239,20 +248,20 @@ class ModelPipeline:
                     )
                 timers["val"] += time.time() - time_start
 
-                print("\n")
+                self.logger.info("")
 
                 val_metrics["Loss"].append(curr_val_metrics[0])
                 for i, metric_name in enumerate(self.metrics.keys()):
                     val_metrics[metric_name].append(curr_val_metrics[i + 1])
-                    print(
+                    self.logger.info(
                         f"Epoch {epoch + 1} Val {metric_name}: {curr_val_metrics[i + 1]:.4f}"
                     )
                 val_loss = curr_val_metrics[0]
-                print(
+                self.logger.info(
                     f"Epoch {epoch + 1} Val Loss: {val_loss:.4f}"
                 )
 
-                print("-" * 30)
+                self.logger.info("-" * 30)
                 
                 # Early stopping based on validation loss
                 if self.scheduler is not None:
@@ -261,12 +270,12 @@ class ModelPipeline:
                 if val_loss < self.best_val_loss:
                     self.best_val_loss = val_loss
                     self.patience_count = 0
-                    print(f"Best validation loss: {val_loss:.4f}.")
+                    self.logger.info(f"Best validation loss: {val_loss:.4f}.")
                 else:
                     self.patience_count += 1
-                    print(f"No improvement in validation loss. Patience: {self.patience_count}/{self.patience_limit}")
+                    self.logger.info(f"No improvement in validation loss. Patience: {self.patience_count}/{self.patience_limit}")
                     if self.patience_count >= self.patience_limit:
-                        print(f"Early stopping triggered at epoch {epoch + 1}.")
+                        self.logger.info(f"Early stopping triggered at epoch {epoch + 1}.")
                         break
 
             # Saving the model for the current run and timestamping it for archival purposes
@@ -290,8 +299,10 @@ class ModelPipeline:
 
             self.plotter.plot_val_and_train_loss(train_metrics, val_metrics)
             if self.timer:
-                print(f"Total training time: {timers['train']:.2f} seconds. Average time per epoch: {timers['train']/len(train_metrics['Loss']):.2f} seconds.")
-                print(f"Total validation time: {timers['val']:.2f} seconds. Average time per epoch: {timers['val']/len(val_metrics['Loss']):.2f} seconds.")
+                self.train_time = timers["train"]
+                self.val_time = timers["val"]
+                self.logger.info(f"Total training time: {timers['train']:.2f} seconds. Average time per epoch: {timers['train']/len(train_metrics['Loss']):.2f} seconds.")
+                self.logger.info(f"Total validation time: {timers['val']:.2f} seconds. Average time per epoch: {timers['val']/len(val_metrics['Loss']):.2f} seconds.")
 
 
         else:
@@ -300,14 +311,14 @@ class ModelPipeline:
                 / "checkpoints"
                 / f"{pth_path_name}.pth"
             ).exists():
-                print(
+                self.logger.warning(
                     f"No existing model weights found for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}. Cannot skip retraining."
                 )
                 self.train(retrain=True)
                 return
-            print("Skipping retraining and using existing model weights.")
+            self.logger.info("Skipping retraining and using existing model weights.")
             if pth_path_name is not None:
-                print(f"Loading model weights from specified path: {pth_path_name}")
+                self.logger.info(f"Loading model weights from specified path: {pth_path_name}")
                 model_pth = (
                     Path(__file__).resolve().parent.parent
                     / "checkpoints"
@@ -337,18 +348,27 @@ class ModelPipeline:
                 self.test_dataloader, training_state="test", epoch=0, use_amp=False
             )
 
-        print(f"Test loss: {test_metrics[0]:.4f}")
+        self.logger.info(f"Test loss: {test_metrics[0]:.4f}")
         for i, metric_name in enumerate(self.metrics.keys()):
-            print(f"Test {metric_name}: {test_metrics[i + 1]:.4f}")
+            self.logger.info(f"Test {metric_name}: {test_metrics[i + 1]:.4f}")
             
         if self.timer:
             test_time = time.time() - start_time
-            print(f"Total testing time: {test_time:.2f} seconds.")
+            self.logger.info(f"Total testing time: {test_time:.2f} seconds.")
+            self.logger.info(f"Total running time: {(test_time + self.train_time + self.val_time):.2f} seconds.")
         return
 
 
 def main():
     current_dir = Path(__file__).resolve().parent
+
+    logfile = current_dir.parent / "checkpoints" / "logs" / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    logfile.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(filename=str(logfile),
+                        format='%(asctime)s %(levelname)s: %(message)s',
+                        filemode='w')
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
 
     # Initializing hyperparameters, metrics and configurations for the model pipeline
     metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
@@ -379,7 +399,8 @@ def main():
         hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
-        include_plot=False
+        include_plot=False,
+        logger=logger,
     )
     model_config["data"] = data
     datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
@@ -395,12 +416,12 @@ def main():
 
 
 
-    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss))
+    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss), logger=logger, name="U-Net with MSSSIMLoss")
     unet_MSSSIMLoss.train(retrain=True)
     unet_MSSSIMLoss.test()
 
 
-    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss))
+    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger, name="U-Net with SSIMLoss")
     unet_SSIMLoss.train(retrain=True)
     unet_SSIMLoss.test()
 
@@ -444,7 +465,8 @@ def main():
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         randomize=False,
-        category="visualization"
+        category="visualization",
+        logger=logger,
     )[2]  # only test data is needed for visualization
 
     regions = ["zealand", "bornholm"]
@@ -455,6 +477,7 @@ def main():
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         category="unused",
+        logger=logger,
     )[2]
 
     visualiser(
@@ -472,6 +495,7 @@ def main():
     )
 
     print("Finished running main")
+    logger.info("Finished running main")
 
 
 if __name__ == "__main__":

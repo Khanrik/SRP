@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import torch
 import matplotlib.pyplot as plt
 import torch.nn as nn
@@ -44,14 +45,15 @@ def log_shape_and_memory(stage: str,
                          LR: torch.Tensor, 
                          target: torch.Tensor, 
                          prediction: torch.Tensor, 
-                         cuda: bool):
+                         cuda: bool,
+                         logger: logging.Logger):
     # Log the shapes, data types, value ranges of the input, target, and prediction tensors,
     # as well as the approximate memory usage of the batch tensors and CUDA memory stats if using GPU. 
     # This is for debugging and analysis of training dynamics and OOM issues.
     batch_memory_mb = (
         tensor_mb(LR) + tensor_mb(target) + tensor_mb(prediction)
     )
-    print(
+    logger.info(
         f"[{stage}] epoch={epoch + 1} batch={batch_idx + 1} "
         f"LR={tuple(LR.shape)} target={tuple(target.shape)} pred={tuple(prediction.shape)} "
         f"dtype={LR.dtype} LR_minmax=({LR.min().item():.4f},{LR.max().item():.4f}) "
@@ -62,18 +64,19 @@ def log_shape_and_memory(stage: str,
         allocated_mb = torch.cuda.memory_allocated() / (1024 ** 2)
         reserved_mb = torch.cuda.memory_reserved() / (1024 ** 2)
         peak_allocated_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
-        print(
+        logger.info(
             f"[{stage}] memory: batch_tensors={batch_memory_mb:.2f}MB "
             f"cuda_allocated={allocated_mb:.2f}MB cuda_reserved={reserved_mb:.2f}MB "
             f"cuda_peak_allocated={peak_allocated_mb:.2f}MB"
         )
     else:
-        print(f"[{stage}] memory: batch_tensors={batch_memory_mb:.2f}MB (cpu)")
+        logger.info(f"[{stage}] memory: batch_tensors={batch_memory_mb:.2f}MB (cpu)")
 
 def profile_layer_activations(model: nn.Module, 
                               sample_batch: torch.Tensor, 
                               use_amp: bool, 
-                              profile_layers_once: bool = True):
+                              profile_layers_once: bool = True,
+                              logger: logging.Logger | None = None):
     # This function registers forward hooks on convolutional and pooling layers
     # to log the shape and approximate memory usage of their outputs during a forward pass with a sample batch.
 
@@ -87,7 +90,8 @@ def profile_layer_activations(model: nn.Module,
         def _hook(_module, _inp, out):
             if isinstance(out, torch.Tensor): # Only log if output is a tensor (some layers may output tuples, dicts, etc.)
                 out_mb = tensor_mb(out)
-                print(f"[layer] {name}: shape={tuple(out.shape)} approx={out_mb:.2f}MB")
+                if logger is not None:
+                    logger.info(f"[layer] {name}: shape={tuple(out.shape)} approx={out_mb:.2f}MB")
         return _hook 
     
     def save_activation_hook(module, input, output):

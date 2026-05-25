@@ -25,7 +25,6 @@ class DownSample(nn.Module):
     def forward(self, x):
         down = self.conv(x)
         p = self.pool(down)
-        #print(f"DownSample: down shape: {down.shape}, pool shape: {p.shape}")
         return down, p
     
 class UpSample(nn.Module):
@@ -37,7 +36,6 @@ class UpSample(nn.Module):
     def forward(self, x1, x2):
         x1 = self.up(x1)
         x = torch.cat([x1, x2], 1)
-        #print(f"UpSample: x shape: {x.shape}")
         return self.conv(x)
     
 class UpSample_last(nn.Module):
