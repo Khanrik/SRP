@@ -389,13 +389,7 @@ def main():
     # unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
     # unet_gradloss.train(retrain=False)
     # unet_gradloss.test()
-    # unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss())
-    # unet_gradloss.train(retrain=False)
-    # unet_gradloss.test()
-
-    # unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
-    # unet_smoothgradloss.train(retrain=False)
-    # unet_smoothgradloss.test()
+    
     # unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5))
     # unet_smoothgradloss.train(retrain=False)
     # unet_smoothgradloss.test()

@@ -147,7 +147,7 @@ def get_base_dataset(lr_data_dir_list: list[Path],
                      cuda: bool,
                      division: DataDivision = DataDivision(train=0.8, val=0.1, test=0.1),
                      randomize: bool = True,
-                     seed: int = None,
+                     seed: int = 12345678,
                      category: str = None,
                      include_plot: bool = False) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
     if division.train + division.val + division.test != 1.0:
