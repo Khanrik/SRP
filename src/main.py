@@ -188,10 +188,8 @@ class ModelPipeline:
         """
         if self.optimizer.__class__.__name__ != "AdamW":
             pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{self.optimizer.__class__.__name__}"
-            print("Not using AdamW")
         else:
             pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}"
-            print("Using AdamW")
 
         if retrain:
             # initializing metrics
@@ -405,7 +403,6 @@ def main():
     model_config["data"] = data
     datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
 
-    print(datarange_for_loss)
     model_config_SGD = copy.deepcopy(model_config)
     model_config_SGD["OPTIMIZER"] = optim.SGD
     model_config_RMS = copy.deepcopy(model_config)
