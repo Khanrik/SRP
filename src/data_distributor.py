@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from random import Random
+import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -241,9 +242,14 @@ def compute_extremal_pixel_value(dataset: DatasetInterface,
     max_pixel_values_lr = []
     min_pixel_values_hr = []
     max_pixel_values_hr = []
+
     mean_pixel_value = 0.0
     std_pixel_value = 0.0
     total_pixels = 0
+    bins=25
+
+    hist_lr=torch.zeros(bins)
+    hist_hr=torch.zeros(bins)
 
     for lr, hr in tqdm(loader, desc="Computing test dataset pixel value statistics"):
         min_pixel_values_lr.append(lr.min().item())
@@ -252,10 +258,14 @@ def compute_extremal_pixel_value(dataset: DatasetInterface,
         max_pixel_values_hr.append(hr.max().item())
 
         # Update mean and std
-        batch_pixels = lr.numel() + hr.numel()
-        total_pixels += batch_pixels
-        mean_pixel_value += (lr.mean().item() * lr.numel() + hr.mean().item() * hr.numel())
+        total_pixels += lr.numel() + hr.numel()
+        mean_pixel_value += lr.sum().item() + hr.sum().item()
         std_pixel_value += (lr.std().item() ** 2 * lr.numel() + hr.std().item() ** 2 * hr.numel())
+        # Update histograms
+        flat_lr = lr.flatten()
+        flat_hr = hr.flatten()
+        hist_lr += torch.histc((flat_lr - flat_lr.min()) / (flat_lr.max() - flat_lr.min()+1e-8), bins=bins, min=0, max=1)
+        hist_hr += torch.histc((flat_hr - flat_hr.min()) / (flat_hr.max() - flat_hr.min()+1e-8), bins=bins, min=0, max=1)
 
     mean_pixel_value /= total_pixels
     std_pixel_value = (std_pixel_value / total_pixels) ** 0.5
@@ -263,6 +273,7 @@ def compute_extremal_pixel_value(dataset: DatasetInterface,
     #combining the min and max pixel values from lr and hr to get the overall min and max pixel values across the dataset
     filtered_min_pixel_values_lr, amount_of_min_values_disregarded_lr = filter_min_outliers(min_pixel_values_lr, z_threshold=3)
     filtered_min_pixel_values_hr, amount_of_min_values_disregarded_hr = filter_min_outliers(min_pixel_values_hr, z_threshold=3)
+
     amount_of_min_values_disregarded = amount_of_min_values_disregarded_lr + amount_of_min_values_disregarded_hr
     
     min_pixel_values = filtered_min_pixel_values_lr + filtered_min_pixel_values_hr
@@ -271,19 +282,36 @@ def compute_extremal_pixel_value(dataset: DatasetInterface,
     dataset_min_pixel_value = min(min_pixel_values)
     dataset_max_pixel_value = max(max_pixel_values) if max_pixel_values else 0.0
     
+    bin_edges = torch.linspace(0, 1, bins + 1)
+    centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     if include_plot:
         # plot the box plot of the max and min pixel values across the dataset, lr beside hr, in the same figure with two subplots
-        plt.figure(figsize=(12, 6))
-        plt.subplot(1, 2, 1)
+        plt.figure(figsize=(18, 6))
+        plt.subplot(1, 4, 1)
         plt.boxplot([filtered_min_pixel_values_lr, filtered_min_pixel_values_hr], labels=['LR Min Pixel Values', 'HR Min Pixel Values'])
         plt.ylabel('Pixel Value')
-        plt.title('Histogram of Minimum Pixel Values')
-        plt.subplot(1, 2, 2)
+        plt.title('Boxplot of Minimum Pixel Values')
+        plt.subplot(1, 4, 2)
         plt.boxplot([max_pixel_values_lr, max_pixel_values_hr], labels=['LR Max Pixel Values', 'HR Max Pixel Values'])
         plt.ylabel('Pixel Value')
-        plt.title('Histogram of Maximum Pixel Values')
-        plt.suptitle(f'Box Plots of Minimum and Maximum Pixel Values in the Dataset\n(Disregarding {amount_of_min_values_disregarded} values under -800 for min pixel value)')
-
+        plt.title('Boxplot of Maximum Pixel Values')
+        plt.suptitle(f'(Disregarding {amount_of_min_values_disregarded} values under -800 for min pixel value)')
+        plt.subplot(1, 4, 3)
+        plt.plot(centers, hist_lr.numpy(), label='LR Pixel Value Distribution')
+        # place a bar at the point equal to the value 0 on the x-axis to indicate where the value 0 is in the distribution, since there are many pixel values under 0 in the dataset and it is important to see where they are in the distribution
+        plt.axvline(x=(0 - dataset_min_pixel_value) / (dataset_max_pixel_value - dataset_min_pixel_value), color='red', linestyle='--', label='Value 0')
+        plt.legend()
+        plt.xlabel('Normalized Pixel Value')
+        plt.ylabel('Frequency')
+        plt.title('Pixel Value Distribution For LR')
+        plt.subplot(1, 4, 4)
+        plt.plot(centers, hist_hr.numpy(), label='HR Pixel Value Distribution')
+        # place a bar at the point equal to the value 0 on the x-axis to indicate where the value 0 is in the distribution, since there are many pixel values under 0 in the dataset and it is important to see where they are in the distribution
+        plt.axvline(x=(0 - dataset_min_pixel_value) / (dataset_max_pixel_value - dataset_min_pixel_value), color='red', linestyle='--', label='Value 0')
+        plt.legend()
+        plt.xlabel('Normalized Pixel Value')
+        plt.ylabel('Frequency')
+        plt.title('Pixel Value Distribution For HR')
         plt.tight_layout()
         plt.show()
 
