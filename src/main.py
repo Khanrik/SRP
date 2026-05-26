@@ -33,8 +33,7 @@ class ModelPipeline:
         logger: logging.Logger,
         max_pixels_per_image: int = 1024 * 1024,
         target_norm_eps: float = 1e-6,
-        criterion: nn.Module = GradLoss(),
-        name: str = "model"
+        criterion: nn.Module = GradLoss()
     ):
         """Returns: Self. Initializes the ModelPipeline with the model, optimizer, loss function, device, and learning rate.
         Args:
@@ -72,9 +71,8 @@ class ModelPipeline:
         self.train_time = 0
         self.val_time = 0
 
-        self.name = name
         self.logger = logger
-        self.logger.info(f"\nInitialized ModelPipeline for {name}")
+        self.logger.info(f"\n\nInitialized ModelPipeline for {self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{self.optimizer.__class__.__name__}")
 
         # Use ReduceLROnPlateau to adapt LR based on validation loss
         self.scheduler = ReduceLROnPlateau(
@@ -105,7 +103,7 @@ class ModelPipeline:
             running[metric_name] = []
         running["Loss"] = []
 
-        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.name}")):
+        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{self.optimizer.__class__.__name__}")):
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
@@ -171,12 +169,6 @@ class ModelPipeline:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
 
-            if idx == 0:
-                if training_state != "test":
-                    log_shape_and_memory(
-                        training_state, epoch, idx, LR, HR, y_pred_denorm, self.cuda, self.logger
-                    )
-
         return [np.mean(running[key]) for key in ["Loss"] + list(self.metrics.keys())]
 
     
@@ -186,7 +178,9 @@ class ModelPipeline:
         Args:
 
         """
-        if self.optimizer.__class__.__name__ != "AdamW":
+        if pth_path_name is not None:
+            pass
+        elif self.optimizer.__class__.__name__ != "AdamW":
             pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{self.optimizer.__class__.__name__}"
         else:
             pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}"
@@ -410,40 +404,40 @@ def main():
 
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss), logger=logger, name="U-Net with MSSSIMLoss")
+    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_MSSSIMLoss.train(retrain=True)
     unet_MSSSIMLoss.test()
 
-    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger, name="U-Net with SSIMLoss")
+    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss.train(retrain=True)
     unet_SSIMLoss.test()
 
-    unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger, name="U-Net with SSIMLoss and SGD")
+    unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss_SGD.train(retrain=True)
     unet_SSIMLoss_SGD.test()
     
-    unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger, name="U-Net with SSIMLoss and RMSprop")
+    unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss_RMS.train(retrain=True)
     unet_SSIMLoss_RMS.test()
 
-    unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss), logger=logger, name="U-Net with MSESSIMLoss")
+    unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss), logger=logger)
     unet_MSESSIM_Loss.train(retrain=True)
     unet_MSESSIM_Loss.test()
 
-    unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss(), logger=logger, name="U-Net with GradLoss")
+    unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss(), logger=logger)
     unet_gradloss.train(retrain=True)
     unet_gradloss.test()
     
-    unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5), logger=logger, name="U-Net with SmoothGradLoss")
+    unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5), logger=logger)
     unet_smoothgradloss.train(retrain=True)
     unet_smoothgradloss.test()
 
     LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger, name="LoGSRN with SSIMLoss")
+    LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     LoGSRN_SSIMLoss.train(retrain=True)
     LoGSRN_SSIMLoss.test()
     
-    LoGSRN_SSIMLoss_RMS = ModelPipeline(LoGSRN_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger, name="LoGSRN with SSIMLoss and RMSprop")
+    LoGSRN_SSIMLoss_RMS = ModelPipeline(LoGSRN_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     LoGSRN_SSIMLoss_RMS.train(retrain=True)
     LoGSRN_SSIMLoss_RMS.test()
 
