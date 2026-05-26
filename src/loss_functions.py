@@ -32,6 +32,22 @@ class SmoothGradLoss(nn.Module):
         grad_loss = self.grad(pred_dx, tgt_dx) + self.grad(pred_dy, tgt_dy)
         return pixel_loss + self.lambda_grad * grad_loss
 
+class SmoothLoss(nn.Module):
+    def __init__(self, beta=1.0):
+        super().__init__()
+        """Returns: Self. Custom loss func.
+        Args:
+            beta: The beta parameter for the SmoothL1Loss, controls the transition point between L1 and L2 loss. (Default 1.0, values 0.0-1.0 ).
+        """
+        self.smooth_l1 = nn.SmoothL1Loss(beta=beta)
+
+    def forward(self, pred, target):
+        """Returns: Loss value.
+        Args:
+            pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
+            target: The ground truth target tensor of the same shape as pred.
+        """
+        return self.smooth_l1(pred, target)
 
 class GradLoss(nn.Module):
     def __init__(self):
