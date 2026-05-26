@@ -471,6 +471,7 @@ def main():
 
     visualiser(
         [unet_SSIMLoss],
+        0,
         plotter_instance,
         visualization_data,
         list(data[:3]) + [untouched_areas, visualization_data],
