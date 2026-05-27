@@ -378,8 +378,8 @@ def main():
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=False,
-        save_plots=True,
+        show_plots=True,
+        save_plots=False,
     )
     
 
@@ -406,40 +406,40 @@ def main():
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
     unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_MSSSIMLoss.train(retrain=False)
-    unet_MSSSIMLoss.test()
+    #unet_MSSSIMLoss.test()
 
     unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss.train(retrain=False)
-    unet_SSIMLoss.test()
+    #unet_SSIMLoss.test()
 
     unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss_SGD.train(retrain=False)
-    unet_SSIMLoss_SGD.test()
+    #unet_SSIMLoss_SGD.test()
     
     unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss_RMS.train(retrain=False)
-    unet_SSIMLoss_RMS.test()
+    #unet_SSIMLoss_RMS.test()
 
     unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss), logger=logger)
     unet_MSESSIM_Loss.train(retrain=False)
-    unet_MSESSIM_Loss.test()
+    #unet_MSESSIM_Loss.test()
 
     unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss(), logger=logger)
     unet_gradloss.train(retrain=False)
-    unet_gradloss.test()
+    #unet_gradloss.test()
     
     unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5), logger=logger)
     unet_smoothgradloss.train(retrain=False)
-    unet_smoothgradloss.test()
+    #unet_smoothgradloss.test()
 
     LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
     LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     LoGSRN_SSIMLoss.train(retrain=False)
-    LoGSRN_SSIMLoss.test()
+    #LoGSRN_SSIMLoss.test()
     
     LoGSRN_SSIMLoss_RMS = ModelPipeline(LoGSRN_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     LoGSRN_SSIMLoss_RMS.train(retrain=False)
-    LoGSRN_SSIMLoss_RMS.test()
+    #LoGSRN_SSIMLoss_RMS.test()
 
     unet_SmoothLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothLoss(lambda_l1=0.5), logger=logger)
     unet_SmoothLoss.train(retrain=True)
@@ -465,13 +465,12 @@ def main():
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
-        category="unused",
+        category="evaluation",
         logger=logger,
     )[2]
 
     visualiser(
-        [unet_SSIMLoss],
-        0,
+        [unet_MSSSIMLoss, unet_SSIMLoss, unet_SSIMLoss_SGD, unet_SSIMLoss_RMS, unet_MSESSIM_Loss, unet_gradloss, unet_smoothgradloss, LoGSRN_SSIMLoss, LoGSRN_SSIMLoss_RMS],
         plotter_instance,
         visualization_data,
         list(data[:3]) + [untouched_areas, visualization_data],
@@ -481,7 +480,8 @@ def main():
         max_val=data[4],
         mean=data[5],
         std=data[6],
-        include_datasplit=False # only worth running once to get the map saved
+        include_maps=True,
+        include_constant_maps=True # only worth running once to get the map saved
     )
 
     print("Finished running main")
