@@ -178,7 +178,6 @@ class ModelPipeline:
         Args:
 
         """
-        print(f"Starting training for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}")
         
         if pth_path_name is not None:
             pass
@@ -188,6 +187,7 @@ class ModelPipeline:
             pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}"
 
         if retrain:
+            print(f"Starting training for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}")
             # initializing metrics
             timers = {
                 "train": 0.0,
@@ -398,23 +398,24 @@ def main():
     )
     downsampled_data = dataset_to_downsampled_dataset(data, downsample_factor=3, logger=logger)
 
-    for datas in [data, downsampled_data]:
+    model_config_SGD = copy.deepcopy(model_config)
+    model_config_SGD["OPTIMIZER"] = optim.SGD
+    model_config_RMS = copy.deepcopy(model_config)
+    model_config_RMS["OPTIMIZER"] = optim.RMSprop
+
+    # Creating models
+    unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
+    LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
+    models = [unet_model, LoGSRN_model]
+    configs = [model_config, model_config_RMS]
+    pipeline_dict = {}
+
+    for i,datas in enumerate([data, downsampled_data]):
         model_config["data"] = data
         datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
 
-        model_config_SGD = copy.deepcopy(model_config)
-        model_config_SGD["OPTIMIZER"] = optim.SGD
-        model_config_RMS = copy.deepcopy(model_config)
-        model_config_RMS["OPTIMIZER"] = optim.RMSprop
-
-        # Creating models
-        unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-        LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-        models = [unet_model, LoGSRN_model]
         loss_functions = [MAESSIMLoss(alpha=0.5, data_range=datarange_for_loss), SmoothGradLoss(),GradLoss(), SmoothLoss(beta=0.5),MSESSIMLoss(alpha=0.5,data_range=datarange_for_loss), SSIMLoss(data_range=datarange_for_loss), MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss)]
-        configs = [model_config, model_config_RMS]
 
-        pipeline_dict = {}
 
         model_config["data"] = datas
         for model in models:
@@ -425,9 +426,12 @@ def main():
                         pth_path_name = f"{model.__class__.__name__}_{criterion.__class__.__name__}"
                     else:
                         pth_path_name = model.__class__.__name__ + "_" + criterion.__class__.__name__ + "_" + config["OPTIMIZER"].__class__.__name__
+                    if i == 1:  
+                        pth_path_name += "_downsampled"
                     pipeline.train(retrain=False, pth_path_name=pth_path_name)
                     pipeline.test()
-                    pipeline_dict[f"{model.__class__.__name__}_{criterion.__class__.__name__}_{config['OPTIMIZER'].__class__.__name__}"] = pipeline
+                    
+                    pipeline_dict[f"{model.__class__.__name__}_{criterion.__class__.__name__}_{config['OPTIMIZER'].__class__.__name__}_{i}"] = pipeline
 
 
     # visualization 
@@ -457,7 +461,7 @@ def main():
     )[2]
     
     visualiser(
-        [pipeline_dict[f"UNet_SSIMLoss_AdamW"], pipeline_dict[f"UNet_SmoothLoss_AdamW"], pipeline_dict[f"UNet_MSESSIMLoss_AdamW"]],
+        [pipeline_dict["UNet_SSIMLoss_AdamW_0"], pipeline_dict["UNet_SmoothLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_0"],pipeline_dict["UNet_MAESSIMLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_1"]] ,
         0,
         plotter_instance,
         visualization_data,
