@@ -176,7 +176,7 @@ def get_base_dataset(lr_data_dir_list: list[Path],
     if val_count != 0:
         val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize)
     test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize)
-    
+
     min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size, include_plot=include_plot, logger=logger) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
 
     if ((train_dataloader is None or val_dataloader is None) and test_dataloader is None):
@@ -204,9 +204,9 @@ def get_base_dataset(lr_data_dir_list: list[Path],
 
 
 def get_downsampled_dataloader(loader: DataLoader, downsample_factor: int = 3, shuffle_bool: bool = True) -> DataLoader:
-    """Returns a dataloader where the LR images are replaced by the HR images downsampled by `downsample_factor` using the nearest neighbor method"""
+    """Returns a dataloader where the LR images are replaced by the HR images downsampled by `downsample_factor` using the bicubic method"""
     downsampled_dataset = copy.deepcopy(loader.dataset)
-    downsampled_dataset.lr = [img.resize((img.width // downsample_factor, img.height // downsample_factor), resample=Image.Resampling.NEAREST) for img in downsampled_dataset.hr]
+    downsampled_dataset.lr = [img.resize((img.width // downsample_factor, img.height // downsample_factor), resample=Image.Resampling.BICUBIC) for img in downsampled_dataset.hr]
     downsampled_loader = prepare_dataloader(downsampled_dataset, loader.batch_size, loader.pin_memory, num_workers=loader.num_workers, shuffle_bool=shuffle_bool)
     return downsampled_loader
 
