@@ -72,9 +72,9 @@ class DatasetInterface(Dataset):
             transforms.Resize((lr_target_size[0] * 3, lr_target_size[1] * 3))
         ])
 
-        self.lr = []
-        self.hr = []
-        self.bboxes = []
+        self.lr: list[Image.Image] = []
+        self.hr: list[Image.Image] = []
+        self.bboxes: list[rasterio.coords.BoundingBox] = []
         for pair in tqdm(data_pairs, desc=f"loading {category} data"):
             self.lr.append(Image.open(pair.lr))
             self.hr.append(Image.open(pair.hr))
@@ -172,10 +172,10 @@ def get_base_dataset(lr_data_dir_list: list[Path],
     train_dataloader = None
     val_dataloader = None
     if train_count != 0:
-        train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda)
+        train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda, shuffle_bool=randomize)
     if val_count != 0:
-        val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda)
-    test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda)
+        val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize)
+    test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize)
     
     min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size, include_plot=include_plot, logger=logger) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
 
@@ -201,6 +201,14 @@ def get_base_dataset(lr_data_dir_list: list[Path],
             )
     
     return (train_dataloader, val_dataloader, test_dataloader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value)
+
+
+def get_downsampled_dataloader(loader: DataLoader, downsample_factor: int = 3, shuffle_bool: bool = True) -> DataLoader:
+    """Returns a dataloader where the LR images are replaced by the HR images downsampled by `downsample_factor` using the nearest neighbor method"""
+    downsampled_dataset = copy.deepcopy(loader.dataset)
+    downsampled_dataset.lr = [img.resize((img.width // downsample_factor, img.height // downsample_factor), resample=Image.Resampling.NEAREST) for img in downsampled_dataset.hr]
+    downsampled_loader = prepare_dataloader(downsampled_dataset, loader.batch_size, loader.pin_memory, num_workers=loader.num_workers, shuffle_bool=shuffle_bool)
+    return downsampled_loader
 
 
 def filter_min_outliers(data, z_threshold=3):
