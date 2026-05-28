@@ -11,7 +11,7 @@ from pathlib import Path
 from unet import UNet
 from helpers import *  # noqa: F403
 from plotter import plotter
-from data_distributor import get_base_dataset, DataDivision, get_downsampled_dataloader
+from data_distributor import get_base_dataset, DataDivision, dataset_to_downsampled_dataset, loader_to_downsampled_loader
 from typing import Literal
 import time
 from loss_functions import *  # noqa: F403
@@ -394,6 +394,7 @@ def main():
         include_plot=False,
         logger=logger,
     )
+    downsampled_data = dataset_to_downsampled_dataset(data, downsample_factor=3, logger=logger)
 
     model_config["data"] = data
     datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
@@ -458,6 +459,7 @@ def main():
         category="visualization",
         logger=logger,
     )[2]  # only test data is needed for visualization
+    # downsampled_visualization_data = loader_to_downsampled_loader(visualization_data, downsample_factor=3, shuffle_bool=False)
 
     regions = ["zealand", "bornholm"]
     untouched_areas = get_base_dataset(
@@ -466,9 +468,11 @@ def main():
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
+        randomize=False,
         category="unused",
         logger=logger,
     )[2]
+    # downsampled_untouched_areas = loader_to_downsampled_loader(untouched_areas, downsample_factor=3, shuffle_bool=False)
 
     visualiser(
         [unet_SSIMLoss],

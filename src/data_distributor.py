@@ -177,7 +177,7 @@ def get_base_dataset(lr_data_dir_list: list[Path],
         val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize)
     test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize)
 
-    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataset, batch_size, include_plot=include_plot, logger=logger) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
+    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
 
     if ((train_dataloader is None or val_dataloader is None) and test_dataloader is None):
         raise ValueError(
@@ -203,13 +203,22 @@ def get_base_dataset(lr_data_dir_list: list[Path],
     return (train_dataloader, val_dataloader, test_dataloader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value)
 
 
-def get_downsampled_dataloader(loader: DataLoader, downsample_factor: int = 3, shuffle_bool: bool = True) -> DataLoader:
+def loader_to_downsampled_loader(loader: DataLoader, downsample_factor: int = 3, shuffle_bool: bool = True) -> DataLoader:
     """Returns a dataloader where the LR images are replaced by the HR images downsampled by `downsample_factor` using the bicubic method"""
     downsampled_dataset = copy.deepcopy(loader.dataset)
-    downsampled_dataset.lr = [img.resize((img.width // downsample_factor, img.height // downsample_factor), resample=Image.Resampling.BICUBIC) for img in downsampled_dataset.hr]
+    downsampled_dataset.lr = [img.resize((img.width // downsample_factor, img.height // downsample_factor), resample=Image.Resampling.BICUBIC) for img in tqdm(downsampled_dataset.hr, desc="Downsampling HR images")]
     downsampled_loader = prepare_dataloader(downsampled_dataset, loader.batch_size, loader.pin_memory, num_workers=loader.num_workers, shuffle_bool=shuffle_bool)
     return downsampled_loader
 
+
+def dataset_to_downsampled_dataset(dataset: tuple[DataLoader, DataLoader, DataLoader, float, float, float, float], downsample_factor: int = 3, logger: logging.Logger = None) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
+    """Returns a dataset where the LR images are replaced by the HR images downsampled by `downsample_factor` using the bicubic method"""
+    train_loader, val_loader, test_loader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = dataset
+    downsampled_train_loader = loader_to_downsampled_loader(train_loader, downsample_factor)
+    downsampled_val_loader = loader_to_downsampled_loader(val_loader, downsample_factor)
+    downsampled_test_loader = loader_to_downsampled_loader(test_loader, downsample_factor)
+    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(downsampled_train_loader, include_plot=False, logger=logger)
+    return (downsampled_train_loader, downsampled_val_loader, downsampled_test_loader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value)
 
 def filter_min_outliers(data, z_threshold=3):
     """Filters out lower-tail outliers from the data using the Z-score method.
@@ -234,8 +243,7 @@ def filter_min_outliers(data, z_threshold=3):
     return filtered_data, values_disregarded_amount
 
 
-def compute_extremal_pixel_value(dataset: DatasetInterface, 
-                                 batch_size: int, 
+def compute_extremal_pixel_value(loader: DataLoader,
                                  include_plot: bool = False,
                                  logger: logging.Logger = None) -> tuple[float, float, float, float]:
     """Computes the minimum and maximum pixel values across the entire dataset
@@ -243,9 +251,8 @@ def compute_extremal_pixel_value(dataset: DatasetInterface,
     Returns:
         (min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value): The minimum and maximum pixel values found in the dataset
     """
-    if len(dataset) < 1:  
-        return 0, 0, 0, 0 
-    loader = DataLoader(dataset, batch_size=batch_size)
+    if len(loader.dataset) < 1:
+        return 0, 0, 0, 0
     min_pixel_values_lr = []
     max_pixel_values_lr = []
     min_pixel_values_hr = []
