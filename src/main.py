@@ -11,7 +11,7 @@ from pathlib import Path
 from unet import UNet
 from helpers import *  # noqa: F403
 from plotter import plotter
-from data_distributor import get_base_dataset, DataDivision, get_downsampled_dataloader
+from data_distributor import get_base_dataset, DataDivision, dataset_to_downsampled_dataset, loader_to_downsampled_loader
 from typing import Literal
 import time
 from loss_functions import *  # noqa: F403
@@ -391,9 +391,10 @@ def main():
         hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
-        include_plot=True,
+        include_plot=False,
         logger=logger,
     )
+    downsampled_data = dataset_to_downsampled_dataset(data, downsample_factor=3, logger=logger)
 
     model_config["data"] = data
     datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
@@ -405,23 +406,14 @@ def main():
 
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-<<<<<<< Updated upstream
     unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_MSSSIMLoss.train(retrain=False)
     unet_MSSSIMLoss.test()
-=======
-    # LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    
-    # unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss), logger=logger)
-    # unet_MSSSIMLoss.train(retrain=False)
-    # unet_MSSSIMLoss.test()
->>>>>>> Stashed changes
 
     unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss.train(retrain=False)
     unet_SSIMLoss.test()
 
-<<<<<<< Updated upstream
     unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss_SGD.train(retrain=False)
     unet_SSIMLoss_SGD.test()
@@ -429,21 +421,11 @@ def main():
     unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     unet_SSIMLoss_RMS.train(retrain=False)
     unet_SSIMLoss_RMS.test()
-=======
-    # unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    # unet_SSIMLoss_SGD.train(retrain=False)
-    # unet_SSIMLoss_SGD.test()
-    
-    # unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    # unet_SSIMLoss_RMS.train(retrain=False)
-    # unet_SSIMLoss_RMS.test()
->>>>>>> Stashed changes
 
     unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss), logger=logger)
     unet_MSESSIM_Loss.train(retrain=False)
     unet_MSESSIM_Loss.test()
 
-<<<<<<< Updated upstream
     unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss(), logger=logger)
     unet_gradloss.train(retrain=False)
     unet_gradloss.test()
@@ -460,26 +442,9 @@ def main():
     LoGSRN_SSIMLoss_RMS = ModelPipeline(LoGSRN_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
     LoGSRN_SSIMLoss_RMS.train(retrain=False)
     LoGSRN_SSIMLoss_RMS.test()
-=======
-    # unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss(), logger=logger)
-    # unet_gradloss.train(retrain=False)
-    # unet_gradloss.test()
-    
-    # unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5), logger=logger)
-    # unet_smoothgradloss.train(retrain=False)
-    # unet_smoothgradloss.test()
 
-    # LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    # LoGSRN_SSIMLoss.train(retrain=False)
-    # LoGSRN_SSIMLoss.test()
-    
-    # LoGSRN_SSIMLoss_RMS = ModelPipeline(LoGSRN_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    # LoGSRN_SSIMLoss_RMS.train(retrain=False)
-    # LoGSRN_SSIMLoss_RMS.test()
->>>>>>> Stashed changes
-
-    unet_SmoothLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothLoss(beta=0.5), logger=logger)
-    unet_SmoothLoss.train(retrain=False)
+    unet_SmoothLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothLoss(lambda_l1=0.5), logger=logger)
+    unet_SmoothLoss.train(retrain=True)
     unet_SmoothLoss.test()
 
     # visualization 
@@ -494,6 +459,7 @@ def main():
         category="visualization",
         logger=logger,
     )[2]  # only test data is needed for visualization
+    # downsampled_visualization_data = loader_to_downsampled_loader(visualization_data, downsample_factor=3, shuffle_bool=False)
 
     regions = ["zealand", "bornholm"]
     untouched_areas = get_base_dataset(
@@ -502,17 +468,15 @@ def main():
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
+        randomize=False,
         category="unused",
         logger=logger,
     )[2]
+    # downsampled_untouched_areas = loader_to_downsampled_loader(untouched_areas, downsample_factor=3, shuffle_bool=False)
 
     visualiser(
-<<<<<<< Updated upstream
         [unet_SSIMLoss],
         0,
-=======
-        [unet_SSIMLoss,unet_SmoothLoss,unet_MSESSIM_Loss],  
->>>>>>> Stashed changes
         plotter_instance,
         visualization_data,
         list(data[:3]) + [untouched_areas, visualization_data],
