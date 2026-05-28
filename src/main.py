@@ -411,16 +411,16 @@ def main():
     pipeline_dict = {}
 
     for i,datas in enumerate([data, downsampled_data]):
-        model_config["data"] = data
+        
         datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
 
         loss_functions = [MAESSIMLoss(alpha=0.5, data_range=datarange_for_loss), SmoothGradLoss(),GradLoss(), SmoothLoss(beta=0.5),MSESSIMLoss(alpha=0.5,data_range=datarange_for_loss), SSIMLoss(data_range=datarange_for_loss), MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss)]
 
 
-        model_config["data"] = datas
         for model in models:
             for criterion in loss_functions:
                 for config in configs:
+                    config["data"] = datas
                     pipeline = ModelPipeline(model=model, model_config=config, plotter=plotter_instance, logger=logger, criterion=criterion)
                     if config["OPTIMIZER"] == optim.AdamW:
                         pth_path_name = f"{model.__class__.__name__}_{criterion.__class__.__name__}"
