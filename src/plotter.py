@@ -304,20 +304,7 @@ class plotter:
             plt.show()
 
 
-    def plot_boxplots(self, loaders: list[DataLoader], model_pipeline_list, metrics: dict, mean_val: float, std_val: float):
-        if not model_pipeline_list:
-            raise ValueError("pipelines cannot be empty.")
-
-        ssim_metric_name = next((name for name in metrics.keys() if name.lower() == "ssim"), None)
-        if ssim_metric_name is None:
-            raise ValueError("plot_boxplots requires an SSIM metric in the metrics dictionary.")
-
-        def _metric_value(metric_func, prediction, target):
-            value = metric_func(prediction.float(), target)
-            if isinstance(value, torch.Tensor):
-                value = value.detach().cpu().item()
-            return float(value)
-
+    def plot_boxplots(self, loaders: list[DataLoader], model_pipeline_list, metric_func, mean_val: float, std_val: float):
         pipeline_labels = [f"{pipeline.model.__class__.__name__} with {pipeline.criterion.__class__.__name__} and {pipeline.optimizer.__class__.__name__}" for pipeline in model_pipeline_list]
         pipeline_scores: list[list[float]] = [[] for _ in model_pipeline_list]
 
@@ -327,22 +314,19 @@ class plotter:
             pipeline.model.eval()
 
             for record in tqdm(sample_records, desc=f"Evaluating {pipeline.model.__class__.__name__}_{pipeline.criterion.__class__.__name__}_{pipeline.optimizer.__class__.__name__}", leave=False):
-                LR = record["LR"]
-                HR = record["HR"]
-                normalized_LR = normalize_targets(LR, mean=mean_val, std=std_val)
+                LR = normalize_targets(record["LR"], mean=mean_val, std=std_val).to(pipeline.device)
+                HR = record["HR"].to(pipeline.device)
 
-                lr_for_pipeline = normalized_LR.to(pipeline.device)
-                hr_for_pipeline = HR.to(pipeline.device)
                 with torch.no_grad():
-                    y_pred = pipeline.model(lr_for_pipeline)
+                    y_pred = pipeline.model(LR)
                     y_pred_eval = denormalize_target(y_pred, mean=mean_val, std=std_val)
 
-                metric_val = _metric_value(metrics[ssim_metric_name], y_pred_eval, hr_for_pipeline)
+                metric_val = metric_func(y_pred_eval.float(), HR)
                 pipeline_scores[p_idx].append(metric_val)
 
         def _average_score(values: list[float]) -> float:
             finite_values = [value for value in values if np.isfinite(value)]
-            return float(np.mean(finite_values)) if finite_values else float("-inf")
+            return np.mean(finite_values)
 
         average_scores = [_average_score(scores) for scores in pipeline_scores]
         best_pipeline_idx = int(np.argmax(average_scores))
