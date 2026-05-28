@@ -11,7 +11,7 @@ from pathlib import Path
 from unet import UNet
 from helpers import *  # noqa: F403
 from plotter import plotter
-from data_distributor import DatasetInterface, get_base_dataset, DataDivision, prepare_dataloader
+from data_distributor import get_base_dataset, DataDivision, dataset_to_downsampled_dataset, loader_to_downsampled_loader
 from typing import Literal
 import time
 from loss_functions import *  # noqa: F403
@@ -178,6 +178,7 @@ class ModelPipeline:
         Args:
 
         """
+        
         if pth_path_name is not None:
             pass
         elif self.optimizer.__class__.__name__ != "AdamW":
@@ -186,6 +187,7 @@ class ModelPipeline:
             pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}"
 
         if retrain:
+            print(f"Starting training for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}")
             # initializing metrics
             timers = {
                 "train": 0.0,
@@ -378,8 +380,8 @@ def main():
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=False,
-        save_plots=True,
+        show_plots=True,
+        save_plots=False,
     )
     
 
@@ -394,8 +396,7 @@ def main():
         include_plot=False,
         logger=logger,
     )
-    model_config["data"] = data
-    datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
+    downsampled_data = dataset_to_downsampled_dataset(data, downsample_factor=3, logger=logger)
 
     model_config_SGD = copy.deepcopy(model_config)
     model_config_SGD["OPTIMIZER"] = optim.SGD
@@ -404,46 +405,34 @@ def main():
 
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    unet_MSSSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSSSIMLoss(data_range=datarange_for_loss), logger=logger)
-    unet_MSSSIMLoss.train(retrain=False)
-    #unet_MSSSIMLoss.test()
-
-    unet_SSIMLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    unet_SSIMLoss.train(retrain=False)
-    #unet_SSIMLoss.test()
-
-    unet_SSIMLoss_SGD = ModelPipeline(unet_model, model_config_SGD, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    unet_SSIMLoss_SGD.train(retrain=False)
-    #unet_SSIMLoss_SGD.test()
-    
-    unet_SSIMLoss_RMS = ModelPipeline(unet_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    unet_SSIMLoss_RMS.train(retrain=False)
-    #unet_SSIMLoss_RMS.test()
-
-    unet_MSESSIM_Loss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss), logger=logger)
-    unet_MSESSIM_Loss.train(retrain=False)
-    #unet_MSESSIM_Loss.test()
-
-    unet_gradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=GradLoss(), logger=logger)
-    unet_gradloss.train(retrain=False)
-    #unet_gradloss.test()
-    
-    unet_smoothgradloss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothGradLoss(lambda_grad=0.5), logger=logger)
-    unet_smoothgradloss.train(retrain=False)
-    #unet_smoothgradloss.test()
-
     LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
-    LoGSRN_SSIMLoss = ModelPipeline(LoGSRN_model, model_config, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    LoGSRN_SSIMLoss.train(retrain=False)
-    #LoGSRN_SSIMLoss.test()
-    
-    LoGSRN_SSIMLoss_RMS = ModelPipeline(LoGSRN_model, model_config_RMS, plotter=plotter_instance, criterion=SSIMLoss(data_range=datarange_for_loss), logger=logger)
-    LoGSRN_SSIMLoss_RMS.train(retrain=False)
-    #LoGSRN_SSIMLoss_RMS.test()
+    models = [unet_model, LoGSRN_model]
+    configs = [model_config, model_config_RMS]
+    pipeline_dict = {}
 
-    unet_SmoothLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothLoss(beta=0.5), logger=logger)
-    unet_SmoothLoss.train(retrain=False)
-    #unet_SmoothLoss.test()
+    for i,datas in enumerate([data, downsampled_data]):
+        
+        datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
+
+        loss_functions = [MAESSIMLoss(alpha=0.5, data_range=datarange_for_loss), SmoothGradLoss(),GradLoss(), SmoothLoss(beta=0.5),MSESSIMLoss(alpha=0.5,data_range=datarange_for_loss), SSIMLoss(data_range=datarange_for_loss), MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss)]
+
+
+        for model in models:
+            for criterion in loss_functions:
+                for config in configs:
+                    config["data"] = datas
+                    pipeline = ModelPipeline(model=model, model_config=config, plotter=plotter_instance, logger=logger, criterion=criterion)
+                    if config["OPTIMIZER"] == optim.AdamW:
+                        pth_path_name = f"{model.__class__.__name__}_{criterion.__class__.__name__}"
+                    else:
+                        pth_path_name = model.__class__.__name__ + "_" + criterion.__class__.__name__ + "_" + config["OPTIMIZER"].__class__.__name__
+                    if i == 1:  
+                        pth_path_name += "_downsampled"
+                    pipeline.train(retrain=False, pth_path_name=pth_path_name)
+                    pipeline.test()
+                    
+                    pipeline_dict[f"{model.__class__.__name__}_{criterion.__class__.__name__}_{config['OPTIMIZER'].__class__.__name__}_{i}"] = pipeline
+
 
     # visualization 
     regions = ["jutland", "zealand", "bornholm"]
@@ -466,11 +455,12 @@ def main():
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         category="evaluation",
+        randomize=False,
         logger=logger,
     )[2]
-
+    
     visualiser(
-        [unet_MSSSIMLoss, unet_SSIMLoss, unet_SSIMLoss_SGD, unet_SSIMLoss_RMS, unet_MSESSIM_Loss, unet_gradloss, unet_smoothgradloss, LoGSRN_SSIMLoss, LoGSRN_SSIMLoss_RMS],
+        [pipeline_dict["UNet_SSIMLoss_AdamW_0"], pipeline_dict["UNet_SmoothLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_0"],pipeline_dict["UNet_MAESSIMLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_1"]],
         plotter_instance,
         visualization_data,
         list(data[:3]) + [evaluation_data, visualization_data],
