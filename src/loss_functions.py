@@ -95,7 +95,7 @@ class SSIMLoss(nn.Module):
             target: The ground truth target tensor of the same shape as pred.
         """
 
-        ssim_score = SSIM(pred, target, data_range=self.data_range, win_size=self.window_size, win_sigma=self.sigma,size_average=True,k1=self.k1, k2=self.k2)
+        ssim_score = SSIM(pred, target, data_range=self.data_range, win_size=self.window_size, win_sigma=self.sigma,size_average=True)
         return 1 - ssim_score
     
 
@@ -125,32 +125,6 @@ class MSESSIMLoss(nn.Module):
         ssim_loss = self.ssim_loss(pred, target)
         return self.alpha * mse_loss + (1 - self.alpha) * ssim_loss
 
-class MAESSIMLoss(nn.Module):
-    def __init__(self, alpha=0.5, window_size=11, sigma=1.5, data_range=1.0, k1=0.01, k2=0.03):
-        super().__init__()
-        """Returns: Self. Combined MAE and SSIM loss.
-        Args:
-            alpha: Weighting factor to balance MAE and SSIM components (default 0.5).
-            window_size: Gaussian window size used for local statistics in SSIM.
-            sigma: Standard deviation for the Gaussian window in SSIM.
-            data_range: Expected dynamic range of the input tensors for SSIM.
-            k1: SSIM stability constant for the luminance term.
-            k2: SSIM stability constant for the contrast/structure term.
-        """
-        self.alpha = alpha
-        self.mae = nn.L1Loss()
-        self.ssim_loss = SSIMLoss(window_size, sigma, data_range, k1, k2)
-
-    def forward(self, pred, target):
-        """Returns: Combined loss value.
-        Args:
-            pred: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
-            target: The ground truth target tensor of the same shape as pred.
-        """
-        mae_loss = self.mae(pred, target)
-        ssim_loss = self.ssim_loss(pred, target)
-        return self.alpha * mae_loss + (1 - self.alpha) * ssim_loss
-
 
 class MSSSIMLoss(nn.Module):
     def __init__(self, window_size=11, sigma=1.5, data_range=1.0, k1=0.01, k2=0.03):
@@ -176,5 +150,5 @@ class MSSSIMLoss(nn.Module):
             target: The ground truth target tensor of the same shape as pred.
         """
 
-        msssim_score = MSSSIM(pred, target, data_range=self.data_range, win_size=self.window_size, win_sigma=self.sigma,size_average=True,k1=self.k1, k2=self.k2)
+        msssim_score = MSSSIM(pred, target, data_range=self.data_range, win_size=self.window_size, win_sigma=self.sigma,size_average=True)
         return 1 - msssim_score
