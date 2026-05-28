@@ -378,8 +378,8 @@ def main():
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=True,
-        save_plots=False,
+        show_plots=False,
+        save_plots=True,
     )
     
 
@@ -442,8 +442,8 @@ def main():
     #LoGSRN_SSIMLoss_RMS.test()
 
     unet_SmoothLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothLoss(lambda_l1=0.5), logger=logger)
-    unet_SmoothLoss.train(retrain=True)
-    unet_SmoothLoss.test()
+    unet_SmoothLoss.train(retrain=False)
+    #unet_SmoothLoss.test()
 
     # visualization 
     regions = ["jutland", "zealand", "bornholm"]
