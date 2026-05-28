@@ -441,7 +441,7 @@ def main():
     LoGSRN_SSIMLoss_RMS.train(retrain=False)
     #LoGSRN_SSIMLoss_RMS.test()
 
-    unet_SmoothLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothLoss(lambda_l1=0.5), logger=logger)
+    unet_SmoothLoss = ModelPipeline(unet_model, model_config, plotter=plotter_instance, criterion=SmoothLoss(beta=0.5), logger=logger)
     unet_SmoothLoss.train(retrain=False)
     #unet_SmoothLoss.test()
 
