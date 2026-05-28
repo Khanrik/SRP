@@ -11,7 +11,7 @@ from pathlib import Path
 from unet import UNet
 from helpers import *  # noqa: F403
 from plotter import plotter
-from data_distributor import DatasetInterface, get_base_dataset, DataDivision, prepare_dataloader
+from data_distributor import get_base_dataset, DataDivision, get_downsampled_dataloader
 from typing import Literal
 import time
 from loss_functions import *  # noqa: F403
@@ -394,6 +394,7 @@ def main():
         include_plot=False,
         logger=logger,
     )
+
     model_config["data"] = data
     datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
 
