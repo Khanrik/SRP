@@ -13,13 +13,16 @@ class cop_data_group:
     divided_data: list[xr.Dataset | xr.DataArray] = None
 
 def get_ethiopia_data(output_path: Path,
-                      target_resolution: tuple[int, int]):
-    # ethiopia_bbox = what area???
-    return
-    ethiopia = Copernicus(aoi=ethiopia_bbox)
+                      target_resolution: tuple[int, int],
+                      include_merge: bool = False):
+    ethiopia_bbox = BoundingBoxDegree(lon_min=38.2788857234929907, lat_min=6.8128541402981115, lon_max=38.7260934049450327, lat_max=7.2317745888872231)
+    ethiopia = Copernicus(aoi=ethiopia_bbox, target_crs="EPSG:20138", dataforsyningen=False) # UTM zone 38N - meter based Ethiopia CRS
     divided_data, merged_data = ethiopia.get_data(target_resolution=target_resolution)
-    ethiopia.write(divided_data, output_path=output_path / "LR", data_division=DataDivision(no_division=True))
-    ethiopia.write_merge(merged_data, output_path=output_path, filename="ethiopia_merged.tif")
+
+    if include_merge:
+        ethiopia.write_merge(merged_data, output_path=output_path, filename=f"ethiopia_merged.tif")
+
+    ethiopia.write(divided_data, output_path=output_path / "ethiopia")
 
 def get_denmark_data(output_path: Path, 
                      lr_target_resolution: tuple[int, int],
@@ -42,9 +45,6 @@ def get_denmark_data(output_path: Path,
     }
 
     for region in denmark_data.keys():
-        # TODO: slet den her check igen efter bornholm er downloadet
-        if region != "bornholm":
-            continue
         print(f"Processing {region} for Copernicus...")
         divided_data, merged_data = denmark_data[region].copernicus.get_data(target_resolution=lr_target_resolution)
         denmark_data[region].divided_data = divided_data
@@ -101,18 +101,19 @@ def main():
     lr_target_resolution = (128, 128)
     hr_target_resolution = 10
     
-    print("Downloading and processing Denmark data...")
-    get_denmark_data(output_path=data_dir, 
-                     lr_target_resolution=lr_target_resolution, 
-                     hr_target_resolution=hr_target_resolution,
-                     include_merge=True)
+    # print("Downloading and processing Denmark data...")
+    # get_denmark_data(output_path=data_dir, 
+    #                  lr_target_resolution=lr_target_resolution, 
+    #                  hr_target_resolution=hr_target_resolution,
+    #                  include_merge=True)
     
-    print("Moving select files to 'selected' directory...")
-    move_to_selected(output_path=data_dir)
+    # print("Moving select files to 'selected' directory...")
+    # move_to_selected(output_path=data_dir)
     
-    # print("Downloading and processing Ethiopia data...")
-    # get_ethiopia_data(output_path=data_dir / "ethiopia", 
-    #                   target_resolution=lr_target_resolution)
+    print("Downloading and processing Ethiopia data...")
+    get_ethiopia_data(output_path=data_dir, 
+                      target_resolution=lr_target_resolution,
+                      include_merge=True)
     
     print("Done fetching data!")
 

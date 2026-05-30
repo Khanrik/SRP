@@ -25,14 +25,17 @@ class Copernicus:
 
     def __init__(self,
                  aoi: BoundingBoxDegree, 
-                 target_crs: str = "EPSG:25832"):
+                 target_crs: str = "EPSG:25832",
+                 dataforsyningen: bool = True):
         """
         Args:
             aoi: Area of interest defined by bounding box (lon_min, lat_min, lon_max, lat_max).
             target_crs: CRS to reproject DEM data to before chunking.
+            dataforsyningen: Whether to accomodate for dataforsyningen limits.
         """
         self.aoi = aoi
         self.target_crs = target_crs
+        self.dataforsyningen = dataforsyningen
 
     def get_data(self, target_resolution: tuple[int, int]) -> tuple[List[xr.DataArray], xr.DataArray]:
         """main function to get data from copernicus
@@ -73,7 +76,7 @@ class Copernicus:
     def merge(self, items: List[pystac.Item]) -> xr.DataArray:
         rasters = []
 
-        for item in items:
+        for item in tqdm(items, desc="Collecting chunks to merge"):
             signed = sign(item.assets["data"])
             with rioxarray.open_rasterio(signed.href) as data:
                 rasters.append(data.squeeze().drop_vars("band").load())
@@ -88,10 +91,10 @@ class Copernicus:
         # bound til dataforsyningen limits
         transformer = Transformer.from_crs("EPSG:4326", self.target_crs, always_xy=True).transform
         aoi_meter = BoundingBoxMeter(*transformer(self.aoi.lon_min, self.aoi.lat_min), *transformer(self.aoi.lon_max, self.aoi.lat_max))
-        x_min = max(self.LIMITS.x_min, aoi_meter.x_min)
-        y_min = max(self.LIMITS.y_min, aoi_meter.y_min)
-        x_max = min(self.LIMITS.x_max, aoi_meter.x_max)
-        y_max = min(self.LIMITS.y_max, aoi_meter.y_max)
+        x_min = max(self.LIMITS.x_min, aoi_meter.x_min) if self.dataforsyningen else aoi_meter.x_min
+        y_min = max(self.LIMITS.y_min, aoi_meter.y_min) if self.dataforsyningen else aoi_meter.y_min
+        x_max = min(self.LIMITS.x_max, aoi_meter.x_max) if self.dataforsyningen else aoi_meter.x_max
+        y_max = min(self.LIMITS.y_max, aoi_meter.y_max) if self.dataforsyningen else aoi_meter.y_max
 
         # meter difference from center to pixel corner
         reprojected_raw = data.rio.reproject(self.target_crs)
