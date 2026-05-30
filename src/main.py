@@ -448,24 +448,22 @@ def main():
     )[2]  # only test data is needed for visualization
 
     regions = ["zealand", "bornholm"]
-    untouched_areas = get_base_dataset(
+    evaluation_data = get_base_dataset(
         lr_data_dir_list=[data_root / "copernicus" / region for region in regions],
         hr_data_dir_list=[data_root / "dataforsyningen" / region for region in regions],
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
         division=DataDivision(train=0.0, val=0.0, test=1.0),
-
+        category="evaluation",
         randomize=False,
-        category="unused",
         logger=logger,
     )[2]
     
     visualiser(
-        [pipeline_dict["UNet_SSIMLoss_AdamW_0"], pipeline_dict["UNet_SmoothLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_0"],pipeline_dict["UNet_MAESSIMLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_1"]] ,
-        0,
+        [pipeline_dict["UNet_SSIMLoss_AdamW_0"], pipeline_dict["UNet_SmoothLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_0"],pipeline_dict["UNet_MAESSIMLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_1"]],
         plotter_instance,
         visualization_data,
-        list(data[:3]) + [untouched_areas, visualization_data],
+        list(data[:3]) + [evaluation_data, visualization_data],
         model_config["DEVICE"],
         metrics,
         min_val=data[3],
