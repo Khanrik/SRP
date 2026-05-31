@@ -407,7 +407,7 @@ def main(logger):
         
         datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
 
-        loss_functions = [MAESSIMLoss(alpha=0.5, data_range=datarange_for_loss), SmoothGradLoss(),GradLoss(), SmoothLoss(beta=0.5),MSESSIMLoss(alpha=0.5,data_range=datarange_for_loss), SSIMLoss(data_range=datarange_for_loss), MSESSIMLoss(alpha=0.5, data_range=datarange_for_loss)]
+        loss_functions = [MAESSIMLoss(alpha=0.5, data_range=datarange_for_loss), SmoothGradLoss(),GradLoss(), SmoothLoss(beta=0.5),MSESSIMLoss(alpha=0.5,data_range=datarange_for_loss), SSIMLoss(data_range=datarange_for_loss), MSSSIMLoss(data_range=datarange_for_loss)]
 
 
         for model in models:
