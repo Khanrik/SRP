@@ -417,13 +417,13 @@ def main(logger):
                     if config["OPTIMIZER"] == optim.AdamW:
                         pth_path_name = f"{model.__class__.__name__}_{criterion.__class__.__name__}"
                     else:
-                        pth_path_name = model.__class__.__name__ + "_" + criterion.__class__.__name__ + "_" + config["OPTIMIZER"].__class__.__name__
+                        pth_path_name = model.__class__.__name__ + "_" + criterion.__class__.__name__ + "_" + config["OPTIMIZER"].__name__
                     if i == 1:  
                         pth_path_name += "_downsampled"
                     pipeline.train(retrain=False, pth_path_name=pth_path_name)
                     pipeline.test()
                     
-                    pipeline_dict[f"{model.__class__.__name__}_{criterion.__class__.__name__}_{config['OPTIMIZER'].__class__.__name__}_{i}"] = pipeline
+                    pipeline_dict[f"{model.__class__.__name__}_{criterion.__class__.__name__}_{config['OPTIMIZER'].__name__}_{i}"] = pipeline
 
 
     # visualization 
