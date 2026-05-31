@@ -308,7 +308,7 @@ class ModelPipeline:
                 self.logger.warning(
                     f"No existing model weights found for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}. Cannot skip retraining."
                 )
-                self.train(retrain=True)
+                self.train(retrain=True, pth_path_name=pth_path_name)
                 return
             self.logger.info("Skipping retraining and using existing model weights.")
             if pth_path_name is not None:
