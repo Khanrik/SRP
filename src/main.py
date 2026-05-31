@@ -353,16 +353,8 @@ class ModelPipeline:
         return
 
 
-def main():
+def main(logger):
     current_dir = Path(__file__).resolve().parent
-
-    logfile = current_dir.parent / "checkpoints" / "logs" / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log"
-    logfile.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=str(logfile),
-                        format='%(asctime)s %(levelname)s: %(message)s',
-                        filemode='w')
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
 
     # Initializing hyperparameters, metrics and configurations for the model pipeline
     metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
@@ -380,8 +372,8 @@ def main():
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=True,
-        save_plots=False,
+        show_plots=False,
+        save_plots=True,
     )
     
 
@@ -479,4 +471,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    current_dir = Path(__file__).resolve().parent
+
+    logfile = current_dir.parent / "checkpoints" / "logs" / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    logfile.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(filename=str(logfile),
+                        format='%(asctime)s %(levelname)s: %(message)s',
+                        filemode='w')
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    try:
+        main(logger)
+    except Exception as e:
+        logger.exception(f"An error occurred during execution: {str(e)}")
+        raise e
