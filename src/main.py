@@ -187,7 +187,7 @@ class ModelPipeline:
             pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}"
 
         if retrain:
-            print(f"Starting training for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}")
+            print(f"Starting training for {pth_path_name}")
             # initializing metrics
             timers = {
                 "train": 0.0,
@@ -256,6 +256,7 @@ class ModelPipeline:
                 )
 
                 self.logger.info("-" * 30)
+                self.logger.info(f"Currently training {pth_path_name}")
                 
                 # Early stopping based on validation loss
                 if self.scheduler is not None:
