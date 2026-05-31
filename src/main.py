@@ -187,7 +187,7 @@ class ModelPipeline:
             pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}"
 
         if retrain:
-            print(f"Starting training for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}")
+            print(f"Starting training for {pth_path_name}")
             # initializing metrics
             timers = {
                 "train": 0.0,
@@ -256,6 +256,7 @@ class ModelPipeline:
                 )
 
                 self.logger.info("-" * 30)
+                self.logger.info(f"Currently training {pth_path_name}")
                 
                 # Early stopping based on validation loss
                 if self.scheduler is not None:
@@ -308,7 +309,7 @@ class ModelPipeline:
                 self.logger.warning(
                     f"No existing model weights found for {self.model.__class__.__name__} with criterion {self.criterion.__class__.__name__} and optimizer {self.optimizer.__class__.__name__}. Cannot skip retraining."
                 )
-                self.train(retrain=True)
+                self.train(retrain=True, pth_path_name=pth_path_name)
                 return
             self.logger.info("Skipping retraining and using existing model weights.")
             if pth_path_name is not None:
@@ -353,16 +354,8 @@ class ModelPipeline:
         return
 
 
-def main():
+def main(logger):
     current_dir = Path(__file__).resolve().parent
-
-    logfile = current_dir.parent / "checkpoints" / "logs" / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log"
-    logfile.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=str(logfile),
-                        format='%(asctime)s %(levelname)s: %(message)s',
-                        filemode='w')
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
 
     # Initializing hyperparameters, metrics and configurations for the model pipeline
     metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
@@ -380,8 +373,8 @@ def main():
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=True,
-        save_plots=False,
+        show_plots=False,
+        save_plots=True,
     )
     
 
@@ -425,13 +418,13 @@ def main():
                     if config["OPTIMIZER"] == optim.AdamW:
                         pth_path_name = f"{model.__class__.__name__}_{criterion.__class__.__name__}"
                     else:
-                        pth_path_name = model.__class__.__name__ + "_" + criterion.__class__.__name__ + "_" + config["OPTIMIZER"].__class__.__name__
+                        pth_path_name = model.__class__.__name__ + "_" + criterion.__class__.__name__ + "_" + config["OPTIMIZER"].__name__
                     if i == 1:  
                         pth_path_name += "_downsampled"
                     pipeline.train(retrain=False, pth_path_name=pth_path_name)
                     pipeline.test()
                     
-                    pipeline_dict[f"{model.__class__.__name__}_{criterion.__class__.__name__}_{config['OPTIMIZER'].__class__.__name__}_{i}"] = pipeline
+                    pipeline_dict[f"{model.__class__.__name__}_{criterion.__class__.__name__}_{config['OPTIMIZER'].__name__}_{i}"] = pipeline
 
 
     # visualization 
@@ -479,4 +472,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    current_dir = Path(__file__).resolve().parent
+
+    logfile = current_dir.parent / "checkpoints" / "logs" / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    logfile.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(filename=str(logfile),
+                        format='%(asctime)s %(levelname)s: %(message)s',
+                        filemode='w')
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    try:
+        main(logger)
+    except Exception as e:
+        logger.exception(f"An error occurred during execution: {str(e)}")
+        raise e
