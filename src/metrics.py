@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from skimage.metrics import structural_similarity as ssim
+from pytorch_msssim import ssim as py_SSIM, ms_ssim as py_MSSSIM  # type: ignore
 
 def MAE(prediction, target) -> float:
     """Calculates the MAE between the predicted and target tensors
@@ -50,39 +50,13 @@ def SSIM(prediction, target, data_range=1.0) -> float:
         target: The ground truth target tensor of the same shape as prediction.
         data_range: The dynamic range of the images (i.e., the difference between the maximum and minimum possible values).
     """
-    # Convert tensors to numpy images and handle channel ordering for skimage
-    p = prediction.detach().cpu().numpy()
-    t = target.detach().cpu().numpy()
-    # remove batch dim if present
-    if p.ndim == 4:
-        p = p[0]
-    if t.ndim == 4:
-        t = t[0]
+    return py_SSIM(prediction, target, data_range=data_range, win_size=11, win_sigma=1.5, size_average=True)
 
-    # If channels-first (C,H,W) -> transpose to (H,W,C)
-    if p.ndim == 3 and p.shape[0] in (1, 3, 4):
-        p = p.transpose(1, 2, 0)
-        t = t.transpose(1, 2, 0)
-
-    # Now p and t should be HxW or HxWxC
-    h, w = p.shape[0], p.shape[1]
-    min_side = min(h, w)
-    # skimage default win_size is 7; ensure odd and <= min_side
-    win_size = 7
-    if min_side < win_size:
-        win_size = min_side if (min_side % 2 == 1) else max(1, min_side - 1)
-    if win_size < 3:
-        return float('nan')
-
-    # Try calling structural_similarity with channel_axis (newer skimage) or multichannel (older)
-    try:
-        if p.ndim == 3:
-            return float(ssim(p, t, data_range=data_range, channel_axis=2, win_size=win_size))
-        else:
-            return float(ssim(p, t, data_range=data_range, win_size=win_size))
-    except TypeError:
-        # fallback for older skimage versions
-        if p.ndim == 3:
-            return float(ssim(p, t, data_range=data_range, multichannel=True, win_size=win_size))
-        else:
-            return float(ssim(p, t, data_range=data_range, win_size=win_size))
+def MS_SSIM(prediction, target, data_range=1.0) -> float:
+    """Calculates the MS-SSIM between the predicted and target tensors
+    Args:
+        prediction: The predicted output from the model, expected to be a tensor of shape (batch_size, channels, height, width).
+        target: The ground truth target tensor of the same shape as prediction.
+        data_range: The dynamic range of the images (i.e., the difference between the maximum and minimum possible values).
+    """
+    return py_MSSSIM(prediction, target, data_range=data_range, win_size=11, win_sigma=1.5, size_average=True)
