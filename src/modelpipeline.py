@@ -44,8 +44,7 @@ class ModelPipeline:
         )
         self.criterion = criterion
 
-        self.name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{model_config['OPTIMIZER'].__name__}" + ("_downsampled" if downsampled_data else "")
-        self.pth_path_name = self.name.replace("_AdamW", "")
+        self.pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{model_config['OPTIMIZER'].__name__}" + ("_downsampled" if downsampled_data else "")
 
         self.device = model_config["DEVICE"]
         self.cuda = self.device == "cuda"
@@ -69,7 +68,7 @@ class ModelPipeline:
         self.val_time = 0
 
         self.logger = logger
-        self.logger.info(f"\n\nInitialized ModelPipeline for {self.name}")
+        self.logger.info(f"\n\nInitialized ModelPipeline for {self.pth_path_name}")
 
         # Use ReduceLROnPlateau to adapt LR based on validation loss
         self.scheduler = ReduceLROnPlateau(
@@ -100,7 +99,7 @@ class ModelPipeline:
             running[metric_name] = []
         running["Loss"] = []
 
-        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.name}")):
+        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.pth_path_name}")):
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
@@ -180,7 +179,7 @@ class ModelPipeline:
 
         """
         if retrain:
-            print(f"Starting training for {self.name}")
+            print(f"Starting training for {self.pth_path_name}")
             # initializing metrics
             timers = {
                 "train": 0.0,

@@ -79,7 +79,7 @@ def main(logger):
                     pipeline.train(retrain=False)
                     pipeline.test()
                     
-                    pipeline_dict[pipeline.name] = pipeline
+                    pipeline_dict[pipeline.pth_path_name] = pipeline
 
 
     # visualization 
