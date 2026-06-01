@@ -313,7 +313,7 @@ class plotter:
         for p_idx, pipeline in enumerate(model_pipeline_list):
             pipeline.model.eval()
 
-            for record in tqdm(sample_records, desc=f"Evaluating {pipeline.model.__class__.__name__}_{pipeline.criterion.__class__.__name__}_{pipeline.optimizer.__class__.__name__}", leave=False):
+            for record in tqdm(sample_records, desc=f"Evaluating {pipeline.name}", leave=False):
                 LR = normalize_targets(record["LR"], mean=mean_val, std=std_val).to(pipeline.device)
                 HR = record["HR"].to(pipeline.device)
 
