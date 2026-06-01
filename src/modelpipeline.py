@@ -149,10 +149,7 @@ class ModelPipeline:
                     metric_value = metric_fn(y_pred_denorm.float(), HR, max_value=self.max_pixel_value)
                 else:
                     metric_value = metric_fn(y_pred_denorm.float(), HR)
-                if torch.is_tensor(metric_value):
-                    metric_value = metric_value.detach().cpu().item()
-                else:
-                    metric_value = float(metric_value)
+                
                 running[metric_name].append(metric_value)
 
             if training_state == "train":

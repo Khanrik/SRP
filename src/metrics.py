@@ -50,7 +50,12 @@ def SSIM(prediction, target, data_range=1.0) -> float:
         target: The ground truth target tensor of the same shape as prediction.
         data_range: The dynamic range of the images (i.e., the difference between the maximum and minimum possible values).
     """
-    return py_SSIM(prediction, target, data_range=data_range, win_size=11, win_sigma=1.5, size_average=True)
+    metric_value = py_SSIM(prediction, target, data_range=data_range, win_size=11, win_sigma=1.5, size_average=True)
+    if torch.is_tensor(metric_value):
+        metric_value = metric_value.detach().cpu().item()
+    else:
+        metric_value = float(metric_value)
+    return metric_value
 
 def MS_SSIM(prediction, target, data_range=1.0) -> float:
     """Calculates the MS-SSIM between the predicted and target tensors
@@ -59,4 +64,9 @@ def MS_SSIM(prediction, target, data_range=1.0) -> float:
         target: The ground truth target tensor of the same shape as prediction.
         data_range: The dynamic range of the images (i.e., the difference between the maximum and minimum possible values).
     """
-    return py_MSSSIM(prediction, target, data_range=data_range, win_size=11, win_sigma=1.5, size_average=True)
+    metric_value = py_MSSSIM(prediction, target, data_range=data_range, win_size=11, win_sigma=1.5, size_average=True)
+    if torch.is_tensor(metric_value):
+        metric_value = metric_value.detach().cpu().item()
+    else:
+        metric_value = float(metric_value)
+    return metric_value
