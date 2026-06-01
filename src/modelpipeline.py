@@ -25,7 +25,8 @@ class ModelPipeline:
         logger: logging.Logger,
         max_pixels_per_image: int = 1024 * 1024,
         target_norm_eps: float = 1e-6,
-        criterion: nn.Module = GradLoss()
+        criterion: nn.Module = GradLoss(),
+        downsampled_data: bool = False,
     ):
         """Returns: Self. Initializes the ModelPipeline with the model, optimizer, loss function, device, and learning rate.
         Args:
@@ -42,6 +43,9 @@ class ModelPipeline:
             self.model.parameters(), lr=model_config["LEARNING_RATE"]
         )
         self.criterion = criterion
+
+        self.pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{model_config['OPTIMIZER'].__name__}" + ("_downsampled" if downsampled_data else "")
+
         self.device = model_config["DEVICE"]
         self.cuda = self.device == "cuda"
         self.num_workers = 0
@@ -64,7 +68,7 @@ class ModelPipeline:
         self.val_time = 0
 
         self.logger = logger
-        self.logger.info(f"\n\nInitialized ModelPipeline for {self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{self.optimizer.__class__.__name__}")
+        self.logger.info(f"\n\nInitialized ModelPipeline for {self.pth_path_name}")
 
         # Use ReduceLROnPlateau to adapt LR based on validation loss
         self.scheduler = ReduceLROnPlateau(
@@ -95,7 +99,7 @@ class ModelPipeline:
             running[metric_name] = []
         running["Loss"] = []
 
-        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{self.optimizer.__class__.__name__}")):
+        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.pth_path_name}")):
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)
@@ -166,21 +170,13 @@ class ModelPipeline:
 
     
 
-    def train(self, retrain=False, pth_path_name=None):
+    def train(self, retrain=False):
         """Returns: training and validation losses and difference in height coefficients per epoch for analysis and debugging.
         Args:
 
         """
-        
-        if pth_path_name is not None:
-            pass
-        elif self.optimizer.__class__.__name__ != "AdamW":
-            pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{self.optimizer.__class__.__name__}"
-        else:
-            pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}"
-
         if retrain:
-            print(f"Starting training for {pth_path_name}")
+            print(f"Starting training for {self.pth_path_name}")
             # initializing metrics
             timers = {
                 "train": 0.0,
@@ -249,7 +245,7 @@ class ModelPipeline:
                 )
 
                 self.logger.info("-" * 30)
-                self.logger.info(f"Currently training {pth_path_name}")
+                self.logger.info(f"Currently training {self.pth_path_name}")
                 
                 # Early stopping based on validation loss
                 if self.scheduler is not None:
@@ -271,7 +267,7 @@ class ModelPipeline:
             os.makedirs(path, exist_ok=True)
             torch.save(
                 self.model.state_dict(),
-                os.path.join(path, f"{pth_path_name}.pth"),
+                os.path.join(path, f"{self.pth_path_name}.pth"),
             )
 
             archives = os.path.join(path, "archives")
@@ -281,7 +277,7 @@ class ModelPipeline:
                 self.model.state_dict(),
                 os.path.join(
                     archives,
-                    f"{pth_path_name}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth",
+                    f"{self.pth_path_name}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.pth",
                 ),
             )
 
@@ -297,29 +293,29 @@ class ModelPipeline:
             if not (
                 Path(__file__).resolve().parent.parent
                 / "checkpoints"
-                / f"{pth_path_name}.pth"
+                / f"{self.pth_path_name}.pth"
             ).exists():
                 self.logger.warning(
-                    f"No existing model weights found for {pth_path_name}. Cannot skip retraining."
+                    f"No existing model weights found for {self.pth_path_name}. Cannot skip retraining."
                 )
                 print(
-                    f"No existing model weights found for {pth_path_name}. Cannot skip retraining."
+                    f"No existing model weights found for {self.pth_path_name}. Cannot skip retraining."
                 )
-                self.train(retrain=True, pth_path_name=pth_path_name)
+                self.train(retrain=True)
                 return
             self.logger.info("Skipping retraining and using existing model weights.")
-            if pth_path_name is not None:
-                self.logger.info(f"Loading model weights from specified path: {pth_path_name}")
+            if self.pth_path_name is not None:
+                self.logger.info(f"Loading model weights from specified path: {self.pth_path_name}")
                 model_pth = (
                     Path(__file__).resolve().parent.parent
                     / "checkpoints"
-                    / f"{pth_path_name}.pth"
+                    / f"{self.pth_path_name}.pth"
                 )
             else:
                 model_pth = (
                     Path(__file__).resolve().parent.parent
                     / "checkpoints"
-                    / f"{pth_path_name}.pth"
+                    / f"{self.pth_path_name}.pth"
                 )
             self.model.load_state_dict(
                 torch.load(

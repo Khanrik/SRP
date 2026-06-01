@@ -143,6 +143,11 @@ def prepare_dataloader(dataset, batch_size, pin_memory, num_workers=0, shuffle_b
     
     return dataloader
 
+def unshuffle_dataloader(dataloader: DataLoader) -> DataLoader:
+    """Returns a dataloader with the same data as the input dataloader but with shuffle set to False."""
+    unshuffled_dataloader = prepare_dataloader(dataloader.dataset, dataloader.batch_size, dataloader.pin_memory, num_workers=dataloader.num_workers, shuffle_bool=False)
+    return unshuffled_dataloader
+
 def get_base_dataset(lr_data_dir_list: list[Path],
                      hr_data_dir_list: list[Path],
                      batch_size: int,

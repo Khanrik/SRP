@@ -313,7 +313,7 @@ class plotter:
         for p_idx, pipeline in enumerate(model_pipeline_list):
             pipeline.model.eval()
 
-            for record in tqdm(sample_records, desc=f"Evaluating {pipeline.model.__class__.__name__}_{pipeline.criterion.__class__.__name__}_{pipeline.optimizer.__class__.__name__}", leave=False):
+            for record in tqdm(sample_records, desc=f"Evaluating {pipeline.pth_path_name}", leave=False):
                 LR = normalize_targets(record["LR"], mean=mean_val, std=std_val).to(pipeline.device)
                 HR = record["HR"].to(pipeline.device)
 
@@ -321,7 +321,7 @@ class plotter:
                     y_pred = pipeline.model(LR)
                     y_pred_eval = denormalize_target(y_pred, mean=mean_val, std=std_val)
 
-                metric_val = metric_func(y_pred_eval.float(), HR)
+                metric_val = float(metric_func(y_pred_eval.float(), HR))
                 pipeline_scores[p_idx].append(metric_val)
 
         def _average_score(values: list[float]) -> float:

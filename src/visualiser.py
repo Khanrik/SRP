@@ -1,8 +1,7 @@
-from helpers import results, normalize_targets, denormalize_target
+from helpers import results, normalize_targets, denormalize_target, metric_items
 import torch
 from tqdm import tqdm
 from plotter import plotter
-from inspect import signature
 
 def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_images, denmark_data: list, device, metrics, include_maps = False, include_constant_maps = False, min_val=0.0, max_val=1.0, mean=None, std=None):
     """Returns: None. Tests multiple model pipelines and prints their test losses and difference coefficients for comparison.
@@ -26,21 +25,6 @@ def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_image
     if not ModelPipelineList:
         raise ValueError("visualiser requires at least one ModelPipeline instance.")
 
-
-
-
-    def _metric_items(prediction, target):
-        metric_items = []
-        for metric_name, metric_func in metrics.items():
-            input_parameters = signature(metric_func).parameters.keys()
-            if "data_range" in input_parameters:
-                metric_value = metric_func(prediction.float(), target, data_range=max_val - min_val)
-            elif "max_value" in input_parameters:
-                metric_value = metric_func(prediction.float(), target, max_value=max_val)
-            else:
-                metric_value = metric_func(prediction.float(), target)
-            metric_items.append((metric_name, metric_value))
-        return metric_items
 
     test_result=[]
     for LR, HR in tqdm(selected_test_images, position=0, leave=True):
@@ -66,14 +50,14 @@ def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_image
             results(
                 image=LR[0],
                 name="LR Input",
-                metrics=_metric_items(nearest, HR)
+                metrics=metric_items(nearest, HR, metrics, min_val, max_val)
             )
         )
         image_result.append(
             results(
                 image=bilinear[0],
                 name="bilinear",
-                metrics=_metric_items(bilinear, HR)
+                metrics=metric_items(bilinear, HR, metrics, min_val, max_val)
             )
         )
         for pipeline in ModelPipelineList:
@@ -85,7 +69,7 @@ def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_image
             pred_results=results(
                 image=y_pred_eval[0],
                 name=f"{pipeline.model.__class__.__name__} with {pipeline.criterion.__class__.__name__} and {pipeline.optimizer.__class__.__name__}",
-                metrics=_metric_items(y_pred_eval, HR),
+                metrics=metric_items(y_pred_eval, HR, metrics, min_val, max_val),
             )
             image_result.append(pred_results)
         
@@ -94,7 +78,7 @@ def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_image
             results(
                 image=HR[0],
                 name="GT",
-                metrics=_metric_items(HR, HR),
+                metrics=metric_items(HR, HR, metrics, min_val, max_val),
             )
         )
         

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import torch.nn as nn
 from contextlib import nullcontext
 from dataclasses import dataclass
+from inspect import signature
 
 @dataclass
 class results:
@@ -163,3 +164,16 @@ def denormalize_target(target: torch.Tensor, mean: float, std: float) -> torch.T
         
     """
     return target * std + mean
+
+def metric_items(prediction, target, metrics, min_val=0.0, max_val=1.0):
+    metric_items = []
+    for metric_name, metric_func in metrics.items():
+        input_parameters = signature(metric_func).parameters.keys()
+        if "data_range" in input_parameters:
+            metric_value = metric_func(prediction.float(), target, data_range=max_val - min_val)
+        elif "max_value" in input_parameters:
+            metric_value = metric_func(prediction.float(), target, max_value=max_val)
+        else:
+            metric_value = metric_func(prediction.float(), target)
+        metric_items.append((metric_name, metric_value))
+    return metric_items
