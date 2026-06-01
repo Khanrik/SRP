@@ -15,8 +15,6 @@ from logsrn import LoGSRN
 from modelpipeline import ModelPipeline
 
 
-
-
 def main(logger):
     current_dir = Path(__file__).resolve().parent
 
@@ -25,7 +23,7 @@ def main(logger):
     model_config = {
         "LEARNING_RATE": 5e-5,
         "DYNAMIC_LR": True,
-        "BATCH_SIZE": 3,
+        "BATCH_SIZE": 16,
         "EPOCHS": 1000000,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
@@ -77,18 +75,11 @@ def main(logger):
             for criterion in loss_functions:
                 for config in configs:
                     config["data"] = datas
-                    pipeline = ModelPipeline(model=model, model_config=config, plotter=plotter_instance, logger=logger, criterion=criterion)
-                    
-                    if config["OPTIMIZER"] == optim.AdamW:
-                        pth_path_name = f"{model.__class__.__name__}_{criterion.__class__.__name__}"
-                    else:
-                        pth_path_name = model.__class__.__name__ + "_" + criterion.__class__.__name__ + "_" + config["OPTIMIZER"].__name__
-                    if i == 1:  
-                        pth_path_name += "_downsampled"
-                    pipeline.train(retrain=False, pth_path_name=pth_path_name)
+                    pipeline = ModelPipeline(model=model, model_config=config, plotter=plotter_instance, logger=logger, criterion=criterion, downsampled_data=i==1)
+                    pipeline.train(retrain=False)
                     pipeline.test()
                     
-                    pipeline_dict[f"{model.__class__.__name__}_{criterion.__class__.__name__}_{config['OPTIMIZER'].__name__}_{i}"] = pipeline
+                    pipeline_dict[pipeline.pth_path_name] = pipeline
 
 
     # visualization 
@@ -117,7 +108,7 @@ def main(logger):
     )[2]
     
     visualiser(
-        [pipeline_dict["UNet_SSIMLoss_AdamW_0"], pipeline_dict["UNet_SmoothLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_0"],pipeline_dict["UNet_MAESSIMLoss_AdamW_0"], pipeline_dict["UNet_MSESSIMLoss_AdamW_1"]],
+        [pipeline_dict["UNet_SSIMLoss_AdamW"], pipeline_dict["UNet_SmoothLoss_AdamW"], pipeline_dict["UNet_MSESSIMLoss_AdamW"],pipeline_dict["UNet_MAESSIMLoss_AdamW"], pipeline_dict["UNet_MSESSIMLoss_AdamW_downsampled"]],
         plotter_instance,
         visualization_data,
         list(data[:3]) + [evaluation_data, visualization_data],
