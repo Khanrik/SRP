@@ -44,7 +44,7 @@ class ModelPipeline:
         )
         self.criterion = criterion
 
-        self.name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{model_config['OPTIMIZER'].__name__}" + "_downsampled" if downsampled_data else ""
+        self.name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{model_config['OPTIMIZER'].__name__}" + ("_downsampled" if downsampled_data else "")
         self.pth_path_name = self.name.replace("_AdamW", "")
 
         self.device = model_config["DEVICE"]
