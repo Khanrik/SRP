@@ -15,8 +15,6 @@ from logsrn import LoGSRN
 from modelpipeline import ModelPipeline
 
 
-
-
 def main(logger):
     current_dir = Path(__file__).resolve().parent
 
@@ -25,7 +23,7 @@ def main(logger):
     model_config = {
         "LEARNING_RATE": 5e-5,
         "DYNAMIC_LR": True,
-        "BATCH_SIZE": 3,
+        "BATCH_SIZE": 16,
         "EPOCHS": 1000000,
         "PROFILE_LAYERS_ONCE": False,
         "DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
