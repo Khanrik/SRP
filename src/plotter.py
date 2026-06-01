@@ -8,7 +8,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from shapely.geometry import box
 import geopandas as gpd
-from helpers import normalize_targets, denormalize_target
+from helpers import normalize_targets, denormalize_target, metric_items
 import torch
 from tqdm import tqdm
 
@@ -163,6 +163,46 @@ class plotter:
         if self.show_plots:
             plt.show()
 
+    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list, metrics: dict, mean_val: float, std_val: float, crs="EPSG:25832"):
+        rows = []
+        for loader in loaders:
+            dataset = loader.dataset
+            for pipeline in model_pipeline_list:
+                pipeline.model.eval()
+                with torch.no_grad():
+                    for (lr, hr), dataset_indices in tqdm(zip(loader, loader.batch_sampler), desc=f"Evaluating {pipeline.name}", leave=False, total=len(loader)):
+                        lr = lr.to(pipeline.device)
+                        hr = hr.to(pipeline.device)
+                        pred = pipeline.model(lr)
+                        batch_size = pred.shape[0]
+
+                        for i in range(batch_size):
+                            dataset_idx = int(dataset_indices[i])
+                            bbox = dataset.get_bbox(dataset_idx)
+                            row = {
+                                "name": pipeline.name,
+                                "model": pipeline.model.__class__.__name__,
+                                "criterion": pipeline.criterion.__class__.__name__,
+                                "optimizer": pipeline.optimizer.__class__.__name__,
+                                "downsampled input": dataset.downsampled,
+                                "category": dataset.category,
+                                "dataset_idx": dataset_idx,
+                                "geometry": box(
+                                    bbox.left,
+                                    bbox.bottom,
+                                    bbox.right,
+                                    bbox.top,
+                                ),
+                            }
+
+                            pred_sample = pred[i:i+1]
+                            hr_sample = hr[i:i+1]
+                            results = metric_items(pred_sample, hr_sample, metrics, mean_val, std_val)
+                            for name, value in results:
+                                row[name] = float(value)
+
+                            rows.append(row)
+        return gpd.GeoDataFrame(rows, geometry="geometry", crs=crs)
 
     def _get_sample_records(self, loaders: list[DataLoader]):
         cache_key = tuple(id(loader) for loader in loaders)
@@ -321,7 +361,7 @@ class plotter:
                     y_pred = pipeline.model(LR)
                     y_pred_eval = denormalize_target(y_pred, mean=mean_val, std=std_val)
 
-                metric_val = metric_func(y_pred_eval.float(), HR)
+                metric_val = float(metric_func(y_pred_eval.float(), HR))
                 pipeline_scores[p_idx].append(metric_val)
 
         def _average_score(values: list[float]) -> float:
