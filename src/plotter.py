@@ -110,18 +110,37 @@ class plotter:
         pages = [sample_groups[start:start + max_rows_per_figure] for start in range(0, len(sample_groups), max_rows_per_figure)]
 
         for page_idx, page_groups in enumerate(pages, start=1):
+            # Compute columns for this page only
+            num_cols_page = max(len(group) for group in page_groups)
+            # Build titles for this page
+            column_titles_page = []
+            for col_idx in range(num_cols_page):
+                title = None
+                for group in page_groups:
+                    if col_idx < len(group):
+                        title = group[col_idx].name
+                        break
+                column_titles_page.append(title or "")
+
             num_rows = len(page_groups)
             fig, axes = plt.subplots(
                 num_rows,
-                num_cols,
-                figsize=(4 * num_cols, 3.6 * num_rows),
+                num_cols_page,
+                figsize=(4 * num_cols_page, 3.6 * num_rows),
                 squeeze=False,
             )
 
             for row_idx, group in enumerate(page_groups):
-                for col_idx, result in enumerate(group):
+                for col_idx in range(num_cols_page):
                     ax = axes[row_idx][col_idx]
+                    # If this group doesn't have this column (e.g. GT missing), leave axis blank.
+                    if col_idx >= len(group):
+                        ax.axis("off")
+                        if row_idx == 0:
+                            ax.set_title(column_titles_page[col_idx], fontsize=11, pad=10)
+                        continue
 
+                    result = group[col_idx]
                     img = result.image.detach().cpu()
                     if img.ndim == 3:
                         if img.shape[0] in [1, 3]:
@@ -133,7 +152,7 @@ class plotter:
 
                     self._imshow(ax, img, interpolation=interpolation)
                     if row_idx == 0:
-                        ax.set_title(column_titles[col_idx], fontsize=11, pad=10)
+                        ax.set_title(column_titles_page[col_idx], fontsize=11, pad=10)
                     if col_idx == 0:
                         sample_number = (page_idx - 1) * max_rows_per_figure + row_idx + 1
                         ax.set_ylabel(f"Sample {sample_number}", fontsize=11, rotation=0, labelpad=32, va="center")

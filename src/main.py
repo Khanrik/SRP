@@ -13,10 +13,39 @@ from visualiser import visualiser
 from metrics import *  # noqa: F403
 from logsrn import LoGSRN
 from modelpipeline import ModelPipeline
+from main_data_fetcher import get_denmark_data, get_ethiopia_data, move_to_selected
+from visualiser_no_GT import visualiser_no_GT
 
 
 def main(logger):
     current_dir = Path(__file__).resolve().parent
+    data_dir = current_dir.parent / "data"
+
+    lr_target_resolution = (128, 128)
+    hr_target_resolution = 10
+    
+    #datafetching and processing
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+    if not (data_dir / "copernicus").exists() or not (data_dir / "dataforsyningen").exists():
+        print("Downloading and processing Denmark data...")
+        get_denmark_data(output_path=data_dir, 
+                        lr_target_resolution=lr_target_resolution, 
+                        hr_target_resolution=hr_target_resolution,
+                        include_merge=True)
+        
+    print("Moving select files to 'selected' directory...")
+    move_to_selected(output_path=data_dir)
+    
+    if not (data_dir / "ethiopia").exists():
+        print("Downloading and processing Ethiopia data...")
+        get_ethiopia_data(output_path=data_dir, 
+                        target_resolution=lr_target_resolution,
+                        include_merge=True)
+    
+    print("Done fetching data!")
+
 
     # Initializing hyperparameters, metrics and configurations for the model pipeline
     metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
@@ -34,7 +63,7 @@ def main(logger):
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=False,
+        show_plots=True,
         save_plots=True,
     )
     
@@ -49,6 +78,7 @@ def main(logger):
         cuda=model_config["DEVICE"] == "cuda",
         include_plot=False,
         logger=logger,
+        compute_extremals=True
     )
     downsampled_data = dataset_to_downsampled_dataset(data, downsample_factor=3, logger=logger)
 
@@ -66,10 +96,8 @@ def main(logger):
 
     for i,datas in enumerate([data, downsampled_data]):
         
-        datarange_for_loss=(data[4] - data[3])/data[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
-
+        datarange_for_loss=(datas[4] - datas[3])/datas[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
         loss_functions = [MAESSIMLoss(alpha=0.5, data_range=datarange_for_loss), SmoothGradLoss(), SmoothLoss(beta=0.5), MSESSIMLoss(alpha=0.5,data_range=datarange_for_loss), SSIMLoss(data_range=datarange_for_loss), MSSSIMLoss(data_range=datarange_for_loss)]
-
 
         for model in models:
             for criterion in loss_functions:
@@ -77,10 +105,8 @@ def main(logger):
                     config["data"] = datas
                     pipeline = ModelPipeline(model=model, model_config=config, plotter=plotter_instance, logger=logger, criterion=criterion, downsampled_data=i==1)
                     pipeline.train(retrain=False)
-                    pipeline.test()
                     
                     pipeline_dict[pipeline.pth_path_name] = pipeline
-
 
     # visualization 
     regions = ["jutland", "zealand", "bornholm"]
@@ -93,7 +119,22 @@ def main(logger):
         randomize=False,
         category="visualization",
         logger=logger,
+        compute_extremals=False
     )[2]  # only test data is needed for visualization
+
+    regions = ["ethiopia"]
+    ethiopian_data = get_base_dataset(
+        lr_data_dir_list=[data_root / "selected" / "lr" / region for region in regions],
+        hr_data_dir_list=[data_root / "selected" / "hr" / region for region in regions],
+        batch_size=1,
+        cuda=model_config["DEVICE"] == "cuda",
+        division=DataDivision(train=0.0, val=0.0, test=1.0),
+        randomize=False,
+        category="visualization",
+        logger=logger,
+        compute_extremals=False
+    )
+    
 
     regions = ["zealand", "bornholm"]
     evaluation_data = get_base_dataset(
@@ -105,10 +146,12 @@ def main(logger):
         category="evaluation",
         randomize=False,
         logger=logger,
+        compute_extremals=False
     )[2]
     
+
     visualiser(
-        [pipeline_dict["UNet_SSIMLoss_AdamW"], pipeline_dict["UNet_SmoothLoss_AdamW"], pipeline_dict["UNet_MSESSIMLoss_AdamW"],pipeline_dict["UNet_MAESSIMLoss_AdamW"], pipeline_dict["UNet_MSESSIMLoss_AdamW_downsampled"]],
+        [list(pipeline_dict.values())],
         plotter_instance,
         visualization_data,
         [unshuffle_dataloader(loader) for loader in data[:3]] + [evaluation_data, visualization_data],
@@ -118,8 +161,14 @@ def main(logger):
         max_val=data[4],
         mean=data[5],
         std=data[6],
-        include_maps=True,
-        include_constant_maps=True # only worth running once to get the map saved
+        include_maps=False,
+        include_constant_maps=False # only worth running once to get the map saved
+    )
+    visualiser_no_GT(
+        [pipeline_dict["UNet_SSIMLoss_RMSprop"]],
+        plotter_instance,
+        ethiopian_data[2],  # only test data is needed for visualization
+        model_config["DEVICE"],
     )
 
     print("Finished running main")

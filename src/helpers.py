@@ -166,6 +166,8 @@ def denormalize_target(target: torch.Tensor, mean: float, std: float) -> torch.T
     return target * std + mean
 
 def metric_items(prediction, target, metrics, min_val=0.0, max_val=1.0):
+    if prediction.shape != target.shape:
+        return []
     metric_items = []
     for metric_name, metric_func in metrics.items():
         input_parameters = signature(metric_func).parameters.keys()

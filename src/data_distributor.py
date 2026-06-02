@@ -86,6 +86,11 @@ class DatasetInterface(Dataset):
             self.bboxes.append(bounds)
         self.category = category
 
+    def _use_lr_transform_for_hr(self, idx: int) -> bool:
+        lr_filename = str(getattr(self.lr[idx], "filename", "")).lower()
+        hr_filename = str(getattr(self.hr[idx], "filename", "")).lower()
+        return "ethiopia" in lr_filename and "ethiopia" in hr_filename
+
     def __add__(self, other):
         combined = copy.deepcopy(self)
         combined.lr += other.lr 
@@ -98,8 +103,9 @@ class DatasetInterface(Dataset):
         return len(self.lr)
 
     def __getitem__(self, idx: int):
+        hr_transform = self.lr_transform if self._use_lr_transform_for_hr(idx) else self.hr_transform
         return  self.lr_transform(self.lr[idx]).float(), \
-                self.hr_transform(self.hr[idx]).float()
+            hr_transform(self.hr[idx]).float()
     
     def get_bbox(self, idx: int):
         return self.bboxes[idx]
@@ -157,7 +163,9 @@ def get_base_dataset(lr_data_dir_list: list[Path],
                      seed: int = 12345678,
                      category: str = None,
                      include_plot: bool = False,
-                     logger: logging.Logger = None) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
+                     logger: logging.Logger = None,
+                     compute_extremals: bool = True
+                     ) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
     if division.train + division.val + division.test != 1.0:
         raise ValueError(f"Data division proportions must sum to 1.0. Got {division.train} + {division.val} + {division.test} = {division.train + division.val + division.test}")
     all_pairs = _pair_files(lr_data_dir_list, hr_data_dir_list)
@@ -182,8 +190,11 @@ def get_base_dataset(lr_data_dir_list: list[Path],
         val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize)
     test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize)
 
-    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger) if train_dataloader is not None else (0.0, 0.0, 0.0, 0.0)
-
+    if compute_extremals:
+        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger) if train_dataloader is not None else compute_extremal_pixel_value(test_dataloader, include_plot=include_plot, logger=logger)
+    else:
+        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = 0.0, 0.0, 0.0, 0.0
+    
     if ((train_dataloader is None or val_dataloader is None) and test_dataloader is None):
         raise ValueError(
             f"Dataloaders not properly initialized. Train samples: {len(train_dataset)}, "

@@ -7,6 +7,7 @@ from pathlib import Path
 import xarray as xr
 import shutil
 import os
+
 @dataclass
 class cop_data_group:
     copernicus: Copernicus = None
@@ -60,19 +61,24 @@ def get_denmark_data(output_path: Path,
 def move_to_selected(output_path: Path):
     files_to_move = {
         "jutland": [
-            "572995_6223578", # aarhus
-            "471890_6212915", # herborg
-            "550091_6200674", # møllehøj
+            "572995_6223578", # Aarhus
+            "471890_6212915", # Herborg
+            "550091_6200674", # Møllehøj
         ],
         "zealand": [
-            "720615_6172713", # københavn
-            "695568_6126692", # faxe kalkbrud
-            "710908_6130528", # random sjælland mark
+            "720615_6172713", # København
+            "695568_6126692", # Faxe kalkbrud
+            "710908_6130528", # tilfældig Sjælland mark
         ],
         "bornholm": [
-            "874344_6123316", # lilleborg
-            "862935_6119513", # rønne
-            "885754_6111907", # vibegård (random bornholm mark)
+            "874344_6123316", # Lilleborg
+            "862935_6119513", # Rønne
+            "885754_6111907", # Vibegård (tilfældig Bornholm mark)
+        ],
+        "ethiopia": [
+            "-212769_784181", # near Honse, flat area with water
+            "-204859_764408", # mountainous area near Hogiso
+            "-236496_764408", # lightly populous area near Yirba
         ]
     }
 
@@ -83,39 +89,28 @@ def move_to_selected(output_path: Path):
         hr_file_path.mkdir(parents=True, exist_ok=True)
 
         for coords in coords_list:
-            lr_file = output_path / "copernicus" / region / f"copernicus_{coords}.tif"
-            hr_file = output_path / "dataforsyningen" / region / f"dataforsyningen_{coords}.tif"
-            
-            print(f"File: {lr_file}, exists: {lr_file.exists()}")
+            if region != "ethiopia":
+                lr_file = output_path / "copernicus" / region / f"copernicus_{coords}.tif"
+                hr_file = output_path / "dataforsyningen" / region / f"dataforsyningen_{coords}.tif"
 
-            if not lr_file.exists() or not hr_file.exists():
-                print(f"Warning: Missing file for {region} with coords {coords}. LR exists: {lr_file.exists()}, HR exists: {hr_file.exists()}")
-                continue
-            
-            print(f"Moving coordinated files for {region} with coords {coords} to selected directory...")
-            shutil.move(str(lr_file), str(lr_file_path / f"copernicus_{coords}.tif"))
-            shutil.move(str(hr_file), str(hr_file_path / f"dataforsyningen_{coords}.tif"))
+                if (not (lr_file.exists() or not hr_file.exists()) and (lr_file_path.joinpath(f"copernicus_{coords}.tif").exists() and hr_file_path.joinpath(f"dataforsyningen_{coords}.tif").exists())):
+                    print(f"Warning: Missing file for {region} with coords {coords}. LR exists: {lr_file.exists()}, HR exists: {hr_file.exists()}")
+                    continue
+                
+                if not lr_file_path.joinpath(f"copernicus_{coords}.tif").exists():
+                    shutil.move(str(lr_file), str(lr_file_path / f"copernicus_{coords}.tif"))
+                if not hr_file_path.joinpath(f"dataforsyningen_{coords}.tif").exists():
+                    shutil.move(str(hr_file), str(hr_file_path / f"dataforsyningen_{coords}.tif"))
+            else:
+                lr_file = output_path / "ethiopia" / f"copernicus_{coords}.tif"
 
-def main():
-    data_dir = Path(__file__).resolve().parent.parent / "data"
-    lr_target_resolution = (128, 128)
-    hr_target_resolution = 10
-    
-    # print("Downloading and processing Denmark data...")
-    # get_denmark_data(output_path=data_dir, 
-    #                  lr_target_resolution=lr_target_resolution, 
-    #                  hr_target_resolution=hr_target_resolution,
-    #                  include_merge=True)
-    
-    # print("Moving select files to 'selected' directory...")
-    # move_to_selected(output_path=data_dir)
-    
-    print("Downloading and processing Ethiopia data...")
-    get_ethiopia_data(output_path=data_dir, 
-                      target_resolution=lr_target_resolution,
-                      include_merge=True)
-    
-    print("Done fetching data!")
+                if not lr_file.exists() and (lr_file_path.joinpath(f"copernicus_{coords}.tif").exists() and hr_file_path.joinpath(f"dataforsyningen_{coords}.tif").exists()):
+                    print(f"Warning: Missing Ethiopia file for {region} with coords {coords}.")
+                    continue
+                
+                # as there is no HR data for Ethiopia, we will just move the LR file to both the LR and HR folders in the selected directory, so that it can be used for visualization and testing with the understanding that the GT is the same as the LR.
+                if not lr_file_path.joinpath(f"copernicus_{coords}.tif").exists():
+                    shutil.copy(str(lr_file), str(lr_file_path / f"copernicus_{coords}.tif"))
+                if not hr_file_path.joinpath(f"dataforsyningen_{coords}.tif").exists():
+                    shutil.copy(str(lr_file), str(hr_file_path / f"dataforsyningen_{coords}.tif"))
 
-if __name__ == "__main__":
-    main()
