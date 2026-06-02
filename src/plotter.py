@@ -65,6 +65,8 @@ class plotter:
 
             if self.show_plots:
                 plt.show()
+            
+            plt.close('all')
 
     def _to_plot_array(self, tensor):
         # Handling the batch dimension and channel dimension for plotting.
@@ -110,18 +112,37 @@ class plotter:
         pages = [sample_groups[start:start + max_rows_per_figure] for start in range(0, len(sample_groups), max_rows_per_figure)]
 
         for page_idx, page_groups in enumerate(pages, start=1):
+            # Compute columns for this page only
+            num_cols_page = max(len(group) for group in page_groups)
+            # Build titles for this page
+            column_titles_page = []
+            for col_idx in range(num_cols_page):
+                title = None
+                for group in page_groups:
+                    if col_idx < len(group):
+                        title = group[col_idx].name
+                        break
+                column_titles_page.append(title or "")
+
             num_rows = len(page_groups)
             fig, axes = plt.subplots(
                 num_rows,
-                num_cols,
-                figsize=(4 * num_cols, 3.6 * num_rows),
+                num_cols_page,
+                figsize=(4 * num_cols_page, 3.6 * num_rows),
                 squeeze=False,
             )
 
             for row_idx, group in enumerate(page_groups):
-                for col_idx, result in enumerate(group):
+                for col_idx in range(num_cols_page):
                     ax = axes[row_idx][col_idx]
+                    # If this group doesn't have this column (e.g. GT missing), leave axis blank.
+                    if col_idx >= len(group):
+                        ax.axis("off")
+                        if row_idx == 0:
+                            ax.set_title(column_titles_page[col_idx], fontsize=11, pad=10)
+                        continue
 
+                    result = group[col_idx]
                     img = result.image.detach().cpu()
                     if img.ndim == 3:
                         if img.shape[0] in [1, 3]:
@@ -133,7 +154,7 @@ class plotter:
 
                     self._imshow(ax, img, interpolation=interpolation)
                     if row_idx == 0:
-                        ax.set_title(column_titles[col_idx], fontsize=11, pad=10)
+                        ax.set_title(column_titles_page[col_idx], fontsize=11, pad=10)
                     if col_idx == 0:
                         sample_number = (page_idx - 1) * max_rows_per_figure + row_idx + 1
                         ax.set_ylabel(f"Sample {sample_number}", fontsize=11, rotation=0, labelpad=32, va="center")
@@ -160,6 +181,7 @@ class plotter:
 
         if self.show_plots:
             plt.show()
+        plt.close('all')
 
     def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list, metrics: dict, min_val=0.0, max_val=1.0, crs="EPSG:25832"):
         rows = []
@@ -228,7 +250,7 @@ class plotter:
         self._save_figure(fig, "datasplit_map")
         if self.show_plots:
             plt.show()
-
+        plt.close('all')
     def plot_extrema_map(self):
         if not (self.save_plots or self.show_plots):
             return
@@ -256,7 +278,7 @@ class plotter:
         self._save_figure(fig, "extrema_maps")
         if self.show_plots:
             plt.show()
-
+        plt.close('all')
     def plot_boxplots(self, metric_name: str = "SSIM"):
         if not (self.save_plots or self.show_plots):
             return
@@ -312,7 +334,7 @@ class plotter:
         self._save_figure(fig, "ssim_boxplots")
         if self.show_plots:
             plt.show()
-
+        plt.close('all')
         return best_pipeline
 
     def plot_metric_maps(self, pipeline_name: str, metrics: dict):
@@ -357,6 +379,7 @@ class plotter:
         self._save_figure(fig, "metric_maps")
         if self.show_plots:
             plt.show()
+        plt.close('all')
 
     def log_typst_table(self, logger, metrics: dict):
         logger.info("Logging typst table for geopandas dataframe. Entirety of dataframe is:")
