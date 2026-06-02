@@ -355,6 +355,7 @@ def compute_extremal_pixel_value(loader: DataLoader,
         
         plt.tight_layout()
         plt.show()
+        plt.close('all')
 
     if logger is not None:
         logger.info(f"Dataset pixel value statistics - \nMin: {round(dataset_min_pixel_value, 4)}, Max: {round(dataset_max_pixel_value, 4)}, Mean: {round(mean_pixel_value, 4)}, Std: {round(std_pixel_value, 4)}\n")

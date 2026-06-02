@@ -65,6 +65,8 @@ class plotter:
 
             if self.show_plots:
                 plt.show()
+            
+            plt.close('all')
 
     def _to_plot_array(self, tensor):
         # Handling the batch dimension and channel dimension for plotting.
@@ -179,6 +181,7 @@ class plotter:
 
         if self.show_plots:
             plt.show()
+        plt.close('all')
 
     def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list, metrics: dict, min_val=0.0, max_val=1.0, crs="EPSG:25832"):
         rows = []
@@ -247,7 +250,7 @@ class plotter:
         self._save_figure(fig, "datasplit_map")
         if self.show_plots:
             plt.show()
-
+        plt.close('all')
     def plot_extrema_map(self):
         if not (self.save_plots or self.show_plots):
             return
@@ -275,7 +278,7 @@ class plotter:
         self._save_figure(fig, "extrema_maps")
         if self.show_plots:
             plt.show()
-
+        plt.close('all')
     def plot_boxplots(self, metric_name: str = "SSIM"):
         if not (self.save_plots or self.show_plots):
             return
@@ -331,7 +334,7 @@ class plotter:
         self._save_figure(fig, "ssim_boxplots")
         if self.show_plots:
             plt.show()
-
+        plt.close('all')
         return best_pipeline
 
     def plot_metric_maps(self, pipeline_name: str, metrics: dict):
@@ -376,6 +379,7 @@ class plotter:
         self._save_figure(fig, "metric_maps")
         if self.show_plots:
             plt.show()
+        plt.close('all')
 
     def log_typst_table(self, logger, metrics: dict):
         logger.info("Logging typst table for geopandas dataframe. Entirety of dataframe is:")
