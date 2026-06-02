@@ -86,12 +86,14 @@ def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_image
     plotter_instance.plot_horizontal_results(test_result, interpolation="nearest")
     
     if include_maps:
+        plotter_instance.get_dataframe(denmark_data, ModelPipelineList, metrics, mean_val=mean, std_val=std)
 
         if include_constant_maps:
-            plotter_instance.plot_datasplit_map(denmark_data)
-            plotter_instance.plot_extrema_map(denmark_data)
+            plotter_instance.plot_datasplit_map()
+            plotter_instance.plot_extrema_map()
         
-        best_pipeline = plotter_instance.plot_boxplots(denmark_data, ModelPipelineList, metrics["SSIM"], mean_val=mean, std_val=std)
-        plotter_instance.plot_metric_maps(denmark_data, best_pipeline, metrics, mean_val=mean, std_val=std)
+        best_pipeline = plotter_instance.plot_boxplots()
+        plotter_instance.plot_metric_maps(best_pipeline, metrics)
+        plotter_instance.log_typst_table(metrics)
     
     return

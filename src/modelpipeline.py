@@ -33,9 +33,11 @@ class ModelPipeline:
             model: The neural network model.
             model_config: A dictionary containing model configuration parameters such as learning rate, device, optimizer, etc.
             plotter: An instance of the plotter class for visualization.
+            logger: An instance of the logger that should be initialized in main.
             max_pixels_per_image: An integer specifying the maximum number of pixels per image to prevent OOM errors.
             target_norm_eps: A small float value to prevent division by zero during normalization of targets.
             criterion: The loss function to be used for training the model. Defaults to GradLoss.
+            downsampled_data: A boolean indicating whether the LR data is downsampled HR.
         """
         self.model = copy.deepcopy(model)
         self.model = self.model.to(model_config["DEVICE"])
@@ -43,6 +45,7 @@ class ModelPipeline:
             self.model.parameters(), lr=model_config["LEARNING_RATE"]
         )
         self.criterion = criterion
+        self.downsampled_data = downsampled_data
 
         self.pth_path_name = f"{self.model.__class__.__name__}_{self.criterion.__class__.__name__}_{model_config['OPTIMIZER'].__name__}" + ("_downsampled" if downsampled_data else "")
 
