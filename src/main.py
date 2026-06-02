@@ -151,7 +151,7 @@ def main(logger):
     
 
     visualiser(
-        [list(pipeline_dict.values())],
+        list(pipeline_dict.values()),
         plotter_instance,
         visualization_data,
         [unshuffle_dataloader(loader) for loader in data[:3]] + [evaluation_data, visualization_data],
