@@ -63,7 +63,7 @@ def main(logger):
     }
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=True,
+        show_plots=False,
         save_plots=True,
     )
     
@@ -161,7 +161,7 @@ def main(logger):
         max_val=data[4],
         mean=data[5],
         std=data[6],
-        include_maps=False,
+        include_maps=True,
         include_constant_maps=False # only worth running once to get the map saved
     )
     visualiser_no_GT(
