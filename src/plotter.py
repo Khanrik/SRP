@@ -8,7 +8,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from shapely.geometry import box
 import geopandas as gpd
-from helpers import normalize_targets, denormalize_target
+from helpers import normalize_targets, denormalize_target, metric_items
 import torch
 from tqdm import tqdm
 
@@ -82,8 +82,6 @@ class plotter:
             raise ValueError(f"Unsupported tensor shape for plotting: {tuple(tensor.shape)}")
         return tensor.numpy()
 
-
-
     def plot_horizontal_results(self, results_list, interpolation="nearest", max_rows_per_figure=3):
         """Plot one sample or many samples in a single figure.
 
@@ -107,7 +105,7 @@ class plotter:
                 raise ValueError("All result groups must contain the same number of entries.")
 
         num_cols = len(sample_groups[0])
-        column_titles = [result.name for result in sample_groups[0]]
+        column_titles = [result.pth_path_name for result in sample_groups[0]]
 
         pages = [sample_groups[start:start + max_rows_per_figure] for start in range(0, len(sample_groups), max_rows_per_figure)]
 
@@ -163,68 +161,58 @@ class plotter:
         if self.show_plots:
             plt.show()
 
-
-    def _get_sample_records(self, loaders: list[DataLoader]):
-        cache_key = tuple(id(loader) for loader in loaders)
-        cached_records = self._sample_cache.get(cache_key)
-        if cached_records is not None:
-            return cached_records
-
-        sample_records: list[dict[str, object]] = []
-
+    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list, metrics: dict, mean_val: float, std_val: float, crs="EPSG:25832"):
+        rows = []
         for loader in loaders:
             dataset = loader.dataset
-            for batch_indices, (LR_batch, HR_batch) in tqdm(
-                zip(loader.batch_sampler, loader),
-                desc=f"Caching samples for {dataset.category} dataset",
-                total=len(loader),
-            ):
-                if isinstance(batch_indices, torch.Tensor):
-                    batch_indices = batch_indices.tolist()
+            for pipeline in model_pipeline_list:
+                pipeline.model.eval()
+                with torch.no_grad():
+                    for (lr, hr), dataset_indices in tqdm(zip(loader, loader.batch_sampler), desc=f"Evaluating {pipeline.pth_path_name}", leave=False, total=len(loader)):
+                        lr = lr.to(pipeline.device)
+                        hr = hr.to(pipeline.device)
+                        pred = pipeline.model(lr)
+                        batch_size = pred.shape[0]
 
-                LR_batch = LR_batch.detach().cpu()
-                HR_batch = HR_batch.detach().cpu()
+                        for i in range(batch_size):
+                            dataset_idx = int(dataset_indices[i])
+                            bbox = dataset.get_bbox(dataset_idx)
+                            row = {
+                                "name": pipeline.pth_path_name,
+                                "model": pipeline.model.__class__.__name__,
+                                "criterion": pipeline.criterion.__class__.__name__,
+                                "optimizer": pipeline.optimizer.__class__.__name__,
+                                "downsampled HR input": pipeline.downsampled_data,
+                                "category": dataset.category,
+                                "dataset_idx": dataset_idx,
+                                "geometry": box(
+                                    bbox.left,
+                                    bbox.bottom,
+                                    bbox.right,
+                                    bbox.top,
+                                ),
+                                "lr_min": float(torch.min(lr[i:i+1]).detach().cpu().item()),
+                                "lr_max": float(torch.max(lr[i:i+1]).detach().cpu().item()),
+                                "hr_min": float(torch.min(hr[i:i+1]).detach().cpu().item()),
+                                "hr_max": float(torch.max(hr[i:i+1]).detach().cpu().item()),
+                            }
 
-                for sample_offset, dataset_idx in enumerate(batch_indices):
-                    bbox = dataset.get_bbox(int(dataset_idx))
-                    sample_records.append({
-                        "category": dataset.category,
-                        "dataset_idx": int(dataset_idx),
-                        "geometry": box(
-                            bbox.left,
-                            bbox.bottom,
-                            bbox.right,
-                            bbox.top,
-                        ),
-                        "LR": LR_batch[sample_offset : sample_offset + 1],
-                        "HR": HR_batch[sample_offset : sample_offset + 1],
-                    })
+                            pred_sample = pred[i:i+1]
+                            hr_sample = hr[i:i+1]
+                            results = metric_items(pred_sample, hr_sample, metrics, mean_val, std_val)
+                            for name, value in results:
+                                row[name] = float(value)
 
-        self._sample_cache[cache_key] = sample_records
-        return sample_records
+                            rows.append(row)
+        self.gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs=crs)
 
-
-    def plot_datasplit_map(self, loaders: list[DataLoader], crs="EPSG:25832"):
+    def plot_datasplit_map(self):
         if not (self.save_plots or self.show_plots):
             return
-        sample_records = self._get_sample_records(loaders)
-        records = [
-            {
-                "category": record["category"],
-                "geometry": record["geometry"],
-            }
-            for record in sample_records
-        ]
         
-        gdf = gpd.GeoDataFrame(
-            records,
-            geometry="geometry",
-            crs=crs
-        )
-
         fig, ax = plt.subplots(figsize=(12, 8))
-
-        gdf.plot(
+        plot_frame = self.gdf.drop_duplicates(subset=["category", "dataset_idx"]).copy()
+        plot_frame.plot(
             column="category",
             categorical=True,
             cmap="Set1",
@@ -238,57 +226,24 @@ class plotter:
         ax.set_axis_off()
         
         self._save_figure(fig, "datasplit_map")
-        
         if self.show_plots:
             plt.show()
 
-
-    def plot_extrema_map(self, loaders: list[DataLoader], crs="EPSG:25832"):
+    def plot_extrema_map(self):
         if not (self.save_plots or self.show_plots):
             return
-
-        records = {
-            "lr_min": [],
-            "lr_max": [],
-            "hr_min": [],
-            "hr_max": [],
-        }
-
-        for record in self._get_sample_records(loaders):
-            lr_sample = record["LR"]
-            hr_sample = record["HR"]
-            geometry = record["geometry"]
-            lr_min = torch.min(lr_sample).detach().cpu().item()
-            lr_max = torch.max(lr_sample).detach().cpu().item()
-            hr_min = torch.min(hr_sample).detach().cpu().item()
-            hr_max = torch.max(hr_sample).detach().cpu().item()
-
-            records["lr_min"].append({"chunk_min": lr_min, "geometry": geometry})
-            records["lr_max"].append({"chunk_max": lr_max, "geometry": geometry})
-            records["hr_min"].append({"chunk_min": hr_min, "geometry": geometry})
-            records["hr_max"].append({"chunk_max": hr_max, "geometry": geometry})
-
-        if not any(records.values()):
-            return
-
-        gdfs = {
-            name: gpd.GeoDataFrame(items, geometry="geometry", crs=crs)
-            for name, items in records.items()
-            if items
-        }
-
+        
         fig, axes = plt.subplots(2, 2, figsize=(16, 14), squeeze=False)
-
+        plot_frame = self.gdf.drop_duplicates(subset=["category", "dataset_idx"]).copy() # ensure one record per sample (not one per pipeline)
         plot_specs = [
-            ("lr_min", "chunk_min", "LR Chunk Minimum Map", "viridis", axes[0][0]),
-            ("lr_max", "chunk_max", "LR Chunk Maximum Map", "plasma", axes[0][1]),
-            ("hr_min", "chunk_min", "HR Chunk Minimum Map", "viridis", axes[1][0]),
-            ("hr_max", "chunk_max", "HR Chunk Maximum Map", "plasma", axes[1][1]),
+            ("lr_min", "LR Chunk Minimum Map", "viridis", axes[0][0]),
+            ("lr_max", "LR Chunk Maximum Map", "plasma", axes[0][1]),
+            ("hr_min", "HR Chunk Minimum Map", "viridis", axes[1][0]),
+            ("hr_max", "HR Chunk Maximum Map", "plasma", axes[1][1]),
         ]
-
-        for key, column, title, cmap, ax in plot_specs:
-            gdfs[key].plot(
-                column=column,
+        for key, title, cmap, ax in plot_specs:
+            plot_frame.plot(
+                column=key,
                 cmap=cmap,
                 legend=True,
                 edgecolor="black",
@@ -299,40 +254,26 @@ class plotter:
             ax.set_axis_off()
 
         self._save_figure(fig, "extrema_maps")
-
         if self.show_plots:
             plt.show()
 
-
-    def plot_boxplots(self, loaders: list[DataLoader], model_pipeline_list, metric_func, mean_val: float, std_val: float):
-        pipeline_labels = [f"{pipeline.model.__class__.__name__} with {pipeline.criterion.__class__.__name__} and {pipeline.optimizer.__class__.__name__}" for pipeline in model_pipeline_list]
-        pipeline_scores: list[list[float]] = [[] for _ in model_pipeline_list]
-
-        sample_records = self._get_sample_records(loaders)
-
-        for p_idx, pipeline in enumerate(model_pipeline_list):
-            pipeline.model.eval()
-
-            for record in tqdm(sample_records, desc=f"Evaluating {pipeline.pth_path_name}", leave=False):
-                LR = normalize_targets(record["LR"], mean=mean_val, std=std_val).to(pipeline.device)
-                HR = record["HR"].to(pipeline.device)
-
-                with torch.no_grad():
-                    y_pred = pipeline.model(LR)
-                    y_pred_eval = denormalize_target(y_pred, mean=mean_val, std=std_val)
-
-                metric_val = float(metric_func(y_pred_eval.float(), HR))
-                pipeline_scores[p_idx].append(metric_val)
+    def plot_boxplots(self, metric_name: str = "SSIM"):
+        if not (self.save_plots or self.show_plots):
+            return
+        
+        pipeline_labels = self.gdf["name"].unique().tolist()
+        pipeline_scores = []
+        for pipeline_name in pipeline_labels:
+            pipeline_scores.append(self.gdf[self.gdf["name"] == pipeline_name][metric_name].tolist())
 
         def _average_score(values: list[float]) -> float:
             finite_values = [value for value in values if np.isfinite(value)]
             return np.mean(finite_values)
-
+        
         average_scores = [_average_score(scores) for scores in pipeline_scores]
-        best_pipeline_idx = int(np.argmax(average_scores))
-        best_pipeline = model_pipeline_list[best_pipeline_idx]
+        best_pipeline = pipeline_labels[int(np.argmax(average_scores))]
 
-        fig, ax = plt.subplots(figsize=(max(10, 2.5 * len(model_pipeline_list)), 6))
+        fig, ax = plt.subplots(figsize=(max(10, 2.5 * len(pipeline_labels)), 6))
         bp = ax.boxplot(pipeline_scores, labels=pipeline_labels, vert=True, patch_artist=True)
         ax.set_title("SSIM Distribution by Pipeline", fontsize=14, pad=12)
         ax.set_ylabel("SSIM")
@@ -369,16 +310,15 @@ class plotter:
             ax.text(idx, upper_whisk, f"WH {float(upper_whisk):.4f}", ha="center", va="bottom", fontsize=7, color="blue")
 
         self._save_figure(fig, "ssim_boxplots")
-
         if self.show_plots:
             plt.show()
 
         return best_pipeline
 
-
-    def plot_metric_maps(self, loaders: list[DataLoader], model_pipeline, metrics: dict, mean_val: float, std_val: float, crs="EPSG:25832"):
+    def plot_metric_maps(self, pipeline_name: str, metrics: dict):
         if not (self.save_plots or self.show_plots):
             return
+
         num_cols = len(metrics)
         fig, axes = plt.subplots(
             2,
@@ -388,44 +328,18 @@ class plotter:
             squeeze=False,
         )
 
-        records_by_metric = {metric_name: [] for metric_name in metrics.keys()}
-        values_by_metric = {metric_name: [] for metric_name in metrics.keys()}
+        pipeline_gdf = self.gdf[self.gdf["name"] == pipeline_name]
 
-        sample_records = self._get_sample_records(loaders)
-
-        model_pipeline.model.eval()
-        for record in sample_records:
-            LR = record["LR"].float().to(model_pipeline.device)
-            HR = record["HR"].float().to(model_pipeline.device)
-            normalized_LR = normalize_targets(LR, mean=mean_val, std=std_val)
-            with torch.no_grad():
-                y_pred = model_pipeline.model(normalized_LR)
-                y_pred_eval = denormalize_target(y_pred, mean=mean_val, std=std_val)
-
-            geometry = record["geometry"]
-
-            # Calculate all metrics for this sample.
-            for metric_name, metric_func in metrics.items():
-                metric_value = metric_func(y_pred_eval, HR)
-                if isinstance(metric_value, torch.Tensor):
-                    metric_value = metric_value.detach().cpu().item()
-
-                values_by_metric[metric_name].append(metric_value)
-
-                records_by_metric[metric_name].append({
-                    "metric_value": metric_value,
-                    "geometry": geometry,
-                })
-
-        for col_idx, (metric_name, metric_func) in enumerate(metrics.items()):
+        for col_idx, metric_name in enumerate(metrics.keys()):
             map_ax = axes[0][col_idx]
             gdf = gpd.GeoDataFrame(
-                records_by_metric[metric_name],
+                pipeline_gdf[["geometry", metric_name]].copy(),
                 geometry="geometry",
-                crs=crs
+                crs=self.gdf.crs
             )
+            gdf = gdf[np.isfinite(gdf[metric_name])]
             gdf.plot(
-                column="metric_value",
+                column=metric_name,
                 cmap="viridis",
                 legend=True,
                 edgecolor="black",
@@ -436,15 +350,57 @@ class plotter:
             map_ax.set_axis_off()
 
             boxplot_ax = axes[1][col_idx]
-            finite_values = [value for value in values_by_metric[metric_name] if np.isfinite(value)]
-            if finite_values:
-                boxplot_ax.boxplot(finite_values, vert=True, patch_artist=True)
-            else:
-                boxplot_ax.text(0.5, 0.5, "No finite values", ha="center", va="center")
+            boxplot_ax.boxplot(gdf[metric_name].tolist(), vert=True, patch_artist=True)
             boxplot_ax.set_xticks([])
             boxplot_ax.grid(axis="y", alpha=0.3)
             
         self._save_figure(fig, "metric_maps")
-
         if self.show_plots:
             plt.show()
+
+    def log_typst_table(self, logger, metrics: dict):
+        logger.info("Logging typst table for geopandas dataframe. Entirety of dataframe is:")
+        logger.info("-" * 30)
+        logger.info("\n" + self.gdf.to_string())
+        logger.info("-" * 30 + "\n")
+
+        group_cols = ["model", "criterion", "optimizer"]
+        group_display_names = {
+            "model": "Architecture",
+            "criterion": "@LF",
+            "optimizer": "Optimizer",
+        }
+        metric_cols = [name for name in metrics.keys()]
+        summary = (
+            self.gdf[group_cols + metric_cols]
+            .groupby(group_cols, dropna=False)
+            .mean()
+            .reset_index()
+        )
+        headers = group_cols + metric_cols
+
+        typst_lines = []
+        typst_lines.append("#onecol(")
+        typst_lines.append("  figure(")
+        typst_lines.append("    table(")
+        typst_lines.append(f"      columns: {len(headers)},")
+        typst_lines.append("")
+        typst_lines.append("      " + ", ".join(f"[{group_display_names.get(header, header)}]" for header in headers) + ",")
+        typst_lines.append("")
+
+        for _, row in summary.iterrows():
+            cells = []
+            for col in headers:
+                value = row[col]
+                if isinstance(value, float):
+                    cells.append(f"[{value:.4f}]")
+                else:
+                    cells.append(f"[{value}]")
+            typst_lines.append("      " + ", ".join(cells) + ",")
+
+        typst_lines.append("    ),")
+        typst_lines.append("    caption: [All model configurations and their average metric values when tested on the entirety of Denmark]")
+        typst_lines.append("  )")
+        typst_lines.append(")")
+
+        logger.info("\n".join(typst_lines))
