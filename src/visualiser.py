@@ -86,7 +86,7 @@ def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_image
     plotter_instance.plot_horizontal_results(test_result, interpolation="nearest")
     
     if include_maps:
-        plotter_instance.get_dataframe(denmark_data, ModelPipelineList, metrics, mean_val=mean, std_val=std)
+        plotter_instance.get_dataframe(denmark_data, ModelPipelineList, metrics, min_val=min_val, max_val=max_val)
 
         if include_constant_maps:
             plotter_instance.plot_datasplit_map()

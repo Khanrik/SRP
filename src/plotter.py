@@ -161,7 +161,7 @@ class plotter:
         if self.show_plots:
             plt.show()
 
-    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list, metrics: dict, mean_val: float, std_val: float, crs="EPSG:25832"):
+    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list, metrics: dict, min_val=0.0, max_val=1.0, crs="EPSG:25832"):
         rows = []
         for loader in loaders:
             dataset = loader.dataset
@@ -199,7 +199,7 @@ class plotter:
 
                             pred_sample = pred[i:i+1]
                             hr_sample = hr[i:i+1]
-                            results = metric_items(pred_sample, hr_sample, metrics, mean_val, std_val)
+                            results = metric_items(pred_sample, hr_sample, metrics, min_val, max_val)
                             for name, value in results:
                                 row[name] = float(value)
 
