@@ -106,9 +106,6 @@ class plotter:
             if len(group) != len(sample_groups[0]):
                 raise ValueError("All result groups must contain the same number of entries.")
 
-        num_cols = len(sample_groups[0])
-        column_titles = [result.pth_path_name for result in sample_groups[0]]
-
         pages = [sample_groups[start:start + max_rows_per_figure] for start in range(0, len(sample_groups), max_rows_per_figure)]
 
         for page_idx, page_groups in enumerate(pages, start=1):
