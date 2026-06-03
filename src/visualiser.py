@@ -2,22 +2,28 @@ from helpers import results, normalize_targets, denormalize_target, metric_items
 import torch
 from tqdm import tqdm
 from plotter import plotter
+from torch.utils.data import DataLoader
 
-def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_images, denmark_data: list, device, metrics, include_maps = False, include_constant_maps = False, min_val=0.0, max_val=1.0, mean=None, std=None):
-    """Returns: None. Tests multiple model pipelines and prints their test losses and difference coefficients for comparison.
+def visualiser(ModelPipelineList: list, plotter_instance: plotter, selected_test_images: DataLoader, denmark_data: list[DataLoader], device: str, metrics: dict, \
+                mean: float, std: float, min_val: float, max_val: float, include_maps: bool = False, include_constant_maps: bool = False, boxplots: bool = True, box_metric: str = 'SSIM'):
+    """Visualizes the results of multiple model pipelines on a set of selected test images, and optionally includes metric maps and boxplots for comparison.
     Args:
-        ModelPipelineList: A list of ModelPipeline instances to be tested.
-        plotter_instance: An instance of the plotter class for visualization.
-        selected_test_images: A list of lr and hr image pairs to be used for testing and visualization.
-        denmark_data: All denmark data to be used for map visualization.
-        device: The device to run the model on.
-        metrics: A dictionary of metric functions to be used for evaluation.
-        include_maps: A boolean indicating whether to include the data split map in the visualization.
-        include_constant_maps: A boolean indicating whether to include constant maps in the visualization.
-        min_val: The minimum possible value of the images.
-        max_val: The maximum possible value of the images.
-        mean: The mean value for normalization.
-        std: The standard deviation for normalization.
+        ModelPipelineList (list): A list of ModelPipeline instances to be tested.
+        plotter_instance (plotter): An instance of the plotter class for visualization.
+        selected_test_images (DataLoader): A DataLoader containing the test images to be used for testing and visualization.
+        denmark_data (list[DataLoader]): All denmark data to be used for map visualization.
+        device (str): The device to run the model on.
+        metrics (dict): A dictionary of metric functions to be used for evaluation.
+        mean (float): The mean value for normalization.
+        std (float): The standard deviation for normalization.
+        min_val (float): The minimum possible value of the images.
+        max_val (float): The maximum possible value of the images.
+        include_maps (bool, optional): A boolean indicating whether to include the data split map in the visualization. Default is False.
+        include_constant_maps (bool, optional): A boolean indicating whether to include constant maps in the visualization. Default is False.
+        boxplots (bool, optional): A boolean indicating whether to include boxplots in the visualization. Default is True.
+        box_metric (str, optional): The name of the metric to be used for the boxplots. Default is 'SSIM'.
+    Returns:
+        None. The function generates visualizations based on the provided parameters and saves or shows the plots using the plotter instance.
     """
     if not (plotter_instance.save_plots or plotter_instance.show_plots):
         return
@@ -85,15 +91,16 @@ def visualiser(ModelPipelineList, plotter_instance: plotter, selected_test_image
         test_result.extend([image_result])
     plotter_instance.plot_horizontal_results(test_result, interpolation="nearest")
     
-    if include_maps:
+    if boxplots or include_maps:
         plotter_instance.get_dataframe(denmark_data, ModelPipelineList, metrics, min_val=min_val, max_val=max_val)
+        best_pipeline = plotter_instance.plot_boxplots(metric_name=box_metric) 
 
-        if include_constant_maps:
-            plotter_instance.plot_datasplit_map()
-            plotter_instance.plot_extrema_map()
-        
-        best_pipeline = plotter_instance.plot_boxplots()
+    if include_maps:
         plotter_instance.plot_metric_maps(best_pipeline, metrics)
         plotter_instance.log_typst_table(metrics)
+
+    if include_constant_maps:
+            plotter_instance.plot_datasplit_map()
+            plotter_instance.plot_extrema_map()
     
     return

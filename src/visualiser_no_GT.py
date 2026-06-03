@@ -6,13 +6,15 @@ from tqdm import tqdm
 from plotter import plotter
 import numpy as np
 
-def visualiser_no_GT(ModelPipelineList, plotter_instance: plotter, selected_test_images, device):
-    """Returns: None. Tests multiple model pipelines and prints their test losses and difference coefficients for comparison.
+def visualiser_no_GT(ModelPipelineList: list, plotter_instance: plotter, selected_test_images: list, device: str):
+    """Visualiser function for data with no ground truth. This is currently set up to visualize the Ethiopia data, which has no HR data available.
     Args:
-        ModelPipelineList: A list of ModelPipeline instances to be tested.
-        plotter_instance: An instance of the plotter class for visualization.
-        selected_test_images: A list of lr and hr image pairs to be used for testing and visualization.
-        device: The device to run the model on.
+        ModelPipelineList (list): A list of ModelPipeline instances to be visualized.
+        plotter_instance (plotter): An instance of the plotter class to be used for plotting the results.
+        selected_test_images (list): A list of tuples containing the LR and HR images for the selected test samples. The HR images may be dummy images if no GT is available, but they are still required for the function to run.
+        device (str): The device on which the model is running (e.g., "cuda" or "cpu").
+    Returns:
+        None. The function generates visualizations based on the provided parameters and saves or shows the plots using the plotter instance.
     """
     if not (plotter_instance.save_plots or plotter_instance.show_plots):
         return

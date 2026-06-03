@@ -16,6 +16,17 @@ class cop_data_group:
 def get_ethiopia_data(output_path: Path,
                       target_resolution: tuple[int, int],
                       include_merge: bool = False):
+    """Gets Ethopian DEM data from Copernicus
+    
+    Args:
+        output_path (Path): The path where the dataset should be stored.
+        target_resolution (tuple[int, int]): The target resolution for the high resolution images in meters per pixel.
+        include_merge (bool, optional): A boolean indicating whether to include a merged version of the data in the output. Default is False.
+
+    Returns:
+        None. The function saves the processed dataset to the specified output path.
+    
+    """
     ethiopia_bbox = BoundingBoxDegree(lon_min=38.2788857234929907, lat_min=6.8128541402981115, lon_max=38.7260934049450327, lat_max=7.2317745888872231)
     ethiopia = Copernicus(aoi=ethiopia_bbox, target_crs="EPSG:20138", dataforsyningen=False) # UTM zone 38N - meter based Ethiopia CRS
     divided_data, merged_data = ethiopia.get_data(target_resolution=target_resolution)
@@ -29,6 +40,18 @@ def get_denmark_data(output_path: Path,
                      lr_target_resolution: tuple[int, int],
                      hr_target_resolution: int,
                      include_merge: bool = False):
+    """Gets Danish DEM data from both Copernicus and Dataforsyningen
+    
+    Args:
+        output_path (Path): The path where the dataset should be stored.
+        lr_target_resolution (tuple[int, int]): The target resolution for the low resolution images (width, height) in pixels.
+        hr_target_resolution (int): The target resolution for the high resolution images in meters per pixel.
+        include_merge (bool, optional): A boolean indicating whether to include a merged version of the data in the output. Default is False.
+
+    Returns:
+        None. The function saves the processed dataset to the specified output path.
+    
+    """
     # bounding boxes found with this website https://bboxfinder.com/
     dataforsyningen = Dataforsyningen(target_resolution=hr_target_resolution)
     west_jutland_bbox = BoundingBoxDegree(lon_min=8.047, lat_min=54.908, lon_max=9.673, lat_max=57.169)
@@ -59,6 +82,17 @@ def get_denmark_data(output_path: Path,
         dataforsyningen.get_data(output_path / "dataforsyningen" / region_name)
 
 def move_to_selected(output_path: Path):
+    """Moves select files from the raw data directories to a 'selected' directory.
+    
+    Args:
+        output_path (Path): The path where the dataset is stored. The function expects to find the raw data in specific subdirectories and will move select files to a 'selected' subdirectory within this path.
+    
+    Returns:
+        None. The function moves the specified files to the 'selected' directory.
+        
+    Note:
+        The function is currently set up to move specific files based on their coordinates in the filename. If other areas are wished for testing they should be changed here.
+    """
     files_to_move = {
         "jutland": [
             "572995_6223578", # Aarhus

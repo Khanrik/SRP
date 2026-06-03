@@ -40,6 +40,7 @@ class Interpolate(nn.Module):
         return x
 
 class LoGSRN(nn.Module):
+    """LoGSRN architecture for image super-resolution."""
     def __init__(self, in_channels, num_classes):
         super().__init__()
         self.initial_conv = Conv(in_channels, 128, kernel_size=9, padding=4)

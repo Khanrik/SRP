@@ -14,14 +14,20 @@ class results:
     name: str
     metrics: list[tuple[str, float]]
 
-def tensor_mb(tensor) -> float:
-    # Calculate the approximate memory usage of a tensor in megabytes. 
-    # This is for avoiding OOM errors and does not account for additional memory used (autograd, optimizer states, etc).
+def tensor_mb(tensor: torch.Tensor) -> float:
+    """Calculates the approximate memory usage of a tensor in megabytes (MB)."""
     return tensor.nelement() * tensor.element_size() / (1024 ** 2)
 
-def validate_batch_shapes(LR, target, prediction, max_pixels_per_image=1024*1024):
-    # Ensuring that the input image, target, and prediction have reasonable shapes and sizes 
-    # to avoid OOM errors and shape mismatches during training.
+def validate_batch_shapes(LR: torch.Tensor, target: torch.Tensor, prediction: torch.Tensor, max_pixels_per_image: int = 1024 * 1024):
+    """Validates the shapes of the input tensors for a batch of images and raises errors if they are not compatible.
+    Args:
+        LR (torch.Tensor): The low-resolution input tensor of shape (batch_size, channels, height, width).
+        target (torch.Tensor): The ground truth high-resolution tensor of shape (batch_size, channels, height, width).
+        prediction (torch.Tensor): The predicted high-resolution tensor of shape (batch_size, channels, height, width).
+        max_pixels_per_image (int, optional): The maximum number of pixels allowed per image to prevent excessive memory usage. Default is 1024*1024 (1 megapixel).
+    Raises:
+        ValueError: If the input image is too large, if the prediction and target shapes differ, or if the target image is very large.
+    """
     LR_pixels = LR.shape[-2] * LR.shape[-1]
     target_pixels = target.shape[-2] * target.shape[-1]
     if LR_pixels > max_pixels_per_image:
@@ -40,47 +46,21 @@ def validate_batch_shapes(LR, target, prediction, max_pixels_per_image=1024*1024
             f"Use smaller lr_resize_to/hr_resize_to values."
         )
 
-def log_shape_and_memory(stage: str, 
-                         epoch: int, 
-                         batch_idx: int, 
-                         LR: torch.Tensor, 
-                         target: torch.Tensor, 
-                         prediction: torch.Tensor, 
-                         cuda: bool,
-                         logger: logging.Logger):
-    # Log the shapes, data types, value ranges of the input, target, and prediction tensors,
-    # as well as the approximate memory usage of the batch tensors and CUDA memory stats if using GPU. 
-    # This is for debugging and analysis of training dynamics and OOM issues.
-    batch_memory_mb = (
-        tensor_mb(LR) + tensor_mb(target) + tensor_mb(prediction)
-    )
-    logger.info(
-        f"[{stage}] epoch={epoch + 1} batch={batch_idx + 1} "
-        f"LR={tuple(LR.shape)} target={tuple(target.shape)} pred={tuple(prediction.shape)} "
-        f"dtype={LR.dtype} LR_minmax=({LR.min().item():.4f},{LR.max().item():.4f}) "
-        f"target_minmax=({target.min().item():.4f},{target.max().item():.4f}) "
-        f"pred_minmax=({prediction.min().item():.4f},{prediction.max().item():.4f})"
-    )
-    if cuda:
-        allocated_mb = torch.cuda.memory_allocated() / (1024 ** 2)
-        reserved_mb = torch.cuda.memory_reserved() / (1024 ** 2)
-        peak_allocated_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
-        logger.info(
-            f"[{stage}] memory: batch_tensors={batch_memory_mb:.2f}MB "
-            f"cuda_allocated={allocated_mb:.2f}MB cuda_reserved={reserved_mb:.2f}MB "
-            f"cuda_peak_allocated={peak_allocated_mb:.2f}MB"
-        )
-    else:
-        logger.info(f"[{stage}] memory: batch_tensors={batch_memory_mb:.2f}MB (cpu)")
-
 def profile_layer_activations(model: nn.Module, 
                               sample_batch: torch.Tensor, 
                               use_amp: bool, 
                               profile_layers_once: bool = True,
                               logger: logging.Logger | None = None):
-    # This function registers forward hooks on convolutional and pooling layers
-    # to log the shape and approximate memory usage of their outputs during a forward pass with a sample batch.
-
+    """Profiles the activations of convolutional and pooling layers in a PyTorch model during a forward pass with a sample batch of data. Logs the output shapes and approximate memory usage of each layer, and visualizes the activations of the first batch.
+    Args:
+        model (nn.Module): The PyTorch model to be profiled.
+        sample_batch (torch.Tensor): A sample batch of input data to be passed through the model
+        use_amp (bool): A boolean indicating whether to use automatic mixed precision (AMP) during the forward pass, which can reduce memory usage and is important to profile accurately.
+        profile_layers_once (bool, optional): A boolean indicating whether to profile the layers only once during the first forward pass. If True, the profiling will only be performed once and subsequent calls to this function will not re-profile the layers. Default is True.
+        logger (logging.Logger, optional): A logging.Logger instance for logging messages. If None, no logging will be performed. Default is None.
+    Returns:
+        None
+    """
     if not profile_layers_once:
         return
 
@@ -137,12 +117,12 @@ def normalize_targets(targets: list[torch.Tensor], mean: float, std: float) -> l
     """Normalizes a tensor with Z-score normalization
 
     Args:
-        targets: A list of target tensors to be normalized.
-        mean: The mean pixel value in the dataset.
-        std: The standard deviation of pixel values in the dataset.
+        targets (list[torch.Tensor]): A list of target tensors to be normalized.
+        mean (float): The mean pixel value in the dataset.
+        std (float): The standard deviation of pixel values in the dataset.
 
     Returns:
-        A list of normalized tensors.
+        list[torch.Tensor]: A list of normalized tensors.
     """
     if not isinstance(targets, list):
         targets = [targets]
@@ -155,17 +135,27 @@ def normalize_targets(targets: list[torch.Tensor], mean: float, std: float) -> l
     return normalized_targets if len(normalized_targets) > 1 else normalized_targets[0]
 
 def denormalize_target(target: torch.Tensor, mean: float, std: float) -> torch.Tensor:
-    """
+    """ Denormalizes a tensor that was normalized with Z-score normalization back to its original scale.
     Args:
-        target: The normalized target tensor that is normalized
-        mean: The mean pixel value used for normalization.
-        std: The standard deviation of pixel values used for normalization.
+        target (torch.Tensor): The normalized target tensor that is normalized
+        mean (float): The mean pixel value used for normalization.
+        std (float): The standard deviation of pixel values used for normalization.
     Returns:
-        
+        torch.Tensor: The denormalized target tensor.
     """
     return target * std + mean
 
-def metric_items(prediction, target, metrics, min_val=0.0, max_val=1.0):
+def metric_items(prediction: torch.Tensor, target: torch.Tensor, metrics: dict, min_val: float = 0.0, max_val: float = 1.0)-> list[tuple[str, float]]:
+    """Calculates the specified metrics for a given prediction and target tensor, and returns a list of metric names and their corresponding values.
+    Args:
+        prediction (torch.Tensor): The predicted output tensor from the model.
+        target (torch.Tensor): The ground truth target tensor.
+        metrics (dict): A dictionary where keys are metric names (str) and values are metric functions that take prediction and target tensors as input and return a scalar metric value. The metric functions can optionally accept additional parameters such as data_range or max_value.
+        min_val (float, optional): The minimum possible value of the images, used for metrics that require a data range. Default is 0.0.
+        max_val (float, optional): The maximum possible value of the images, used for metrics that require a data range. Default is 1.0.
+    Returns:
+        list[tuple[str, float]]: A list of tuples, where each tuple contains a metric name and its corresponding calculated value for the given prediction and target tensors.
+    """
     if prediction.shape != target.shape:
         return []
     metric_items = []

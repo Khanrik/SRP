@@ -84,14 +84,13 @@ class plotter:
             raise ValueError(f"Unsupported tensor shape for plotting: {tuple(tensor.shape)}")
         return tensor.numpy()
 
-    def plot_horizontal_results(self, results_list, interpolation="nearest", max_rows_per_figure=3):
-        """Plot one sample or many samples in a single figure.
+    def plot_horizontal_results(self, results_list: list, interpolation: str="nearest", max_rows_per_figure: int=3):
+        """Plot one sample or many samples in a single figure for visual display.
 
         Args:
-            results_list: Either a flat list of results for one sample, or a nested
-                list where each inner list contains the results for one sample.
-            interpolation: Matplotlib interpolation mode used for all images.
-            max_rows_per_figure: Maximum number of sample rows to render per figure.
+            results_list (list): Either a flat list of results for one sample, or a nested list where each inner list contains the results for one sample.
+            interpolation (str): Matplotlib interpolation mode used for all images.
+            max_rows_per_figure (int): Maximum number of sample rows to render per figure.
         """
         if not (self.save_plots or self.show_plots):
             return
@@ -106,8 +105,6 @@ class plotter:
             if len(group) != len(sample_groups[0]):
                 raise ValueError("All result groups must contain the same number of entries.")
 
-        num_cols = len(sample_groups[0])
-        column_titles = [result.pth_path_name for result in sample_groups[0]]
 
         pages = [sample_groups[start:start + max_rows_per_figure] for start in range(0, len(sample_groups), max_rows_per_figure)]
 
@@ -176,14 +173,23 @@ class plotter:
 
             fig.suptitle(f"Horizontal Results Page {page_idx}/{len(pages)}", fontsize=13, y=0.995)
             # ensure layout is tightened to avoid title overlap when showing
-            fig.tight_layout(rect=[0, 0, 1, 0.96])
+            fig.tight_layout()
             self._save_figure(fig, f"horizontal_results_page_{page_idx}")
 
         if self.show_plots:
             plt.show()
         plt.close('all')
 
-    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list, metrics: dict, min_val=0.0, max_val=1.0, crs="EPSG:25832"):
+    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list: list, metrics: dict, min_val: float=0.0, max_val: float=1.0, crs: str="EPSG:25832"):
+        """Generates a GeoDataFrame containing the evaluation metrics for each sample in the dataset, along with their corresponding geometries.
+        Args:
+            loaders (list[DataLoader]): A list of DataLoaders containing the datasets to be evaluated.
+            model_pipeline_list (list): A list of model pipelines to be evaluated.
+            metrics (dict): A dictionary of metrics to be calculated.
+            min_val (float, optional): The minimum value for normalization. Defaults to 0.0.
+            max_val (float, optional): The maximum value for normalization. Defaults to 1.0.
+            crs (str, optional): The coordinate reference system for the GeoDataFrame. Defaults to "EPSG:25832".
+        """
         rows = []
         for loader in loaders:
             dataset = loader.dataset
@@ -229,6 +235,10 @@ class plotter:
         self.gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs=crs)
 
     def plot_datasplit_map(self):
+        """Plots a map showing the distribution of samples across different categories and datasets.
+        Each sample is represented as a polygon based on its bounding box, colored according to its category (e.g., train, val, test).
+        The map provides a visual overview of how the data is split and distributed geographically.
+        """
         if not (self.save_plots or self.show_plots):
             return
         
@@ -251,7 +261,13 @@ class plotter:
         if self.show_plots:
             plt.show()
         plt.close('all')
+
     def plot_extrema_map(self):
+        """
+        Plots maps showing the distribution of minimum and maximum values for each sample across different categories and datasets.
+        Each sample is represented as a polygon based on its bounding box, colored according to its category (e.g., train, val, test).
+        The maps provide a visual overview of how the data is split and distributed geographically.
+        """
         if not (self.save_plots or self.show_plots):
             return
         
@@ -279,7 +295,13 @@ class plotter:
         if self.show_plots:
             plt.show()
         plt.close('all')
+
+
     def plot_boxplots(self, metric_name: str = "SSIM"):
+        """Plots boxplots comparing the distribution of a specified metric across different model pipelines.
+        Args:
+            metric_name (str, optional): The name of the metric to be compared across pipelines. Defaults to "SSIM".
+        """
         if not (self.save_plots or self.show_plots):
             return
         
@@ -297,8 +319,8 @@ class plotter:
 
         fig, ax = plt.subplots(figsize=(max(10, 2.5 * len(pipeline_labels)), 6))
         bp = ax.boxplot(pipeline_scores, labels=pipeline_labels, vert=True, patch_artist=True)
-        ax.set_title("SSIM Distribution by Pipeline", fontsize=14, pad=12)
-        ax.set_ylabel("SSIM")
+        ax.set_title(f"{metric_name} Distribution by Pipeline. \n Evaluated best: {best_pipeline}", fontsize=14, pad=12)
+        ax.set_ylabel(metric_name)
         ax.grid(axis="y", alpha=0.3)
         plt.setp(ax.get_xticklabels(), rotation=20, ha="right")
 
@@ -331,13 +353,18 @@ class plotter:
             ax.text(idx, lower_whisk, f"WL {float(lower_whisk):.4f}", ha="center", va="top", fontsize=7, color="blue")
             ax.text(idx, upper_whisk, f"WH {float(upper_whisk):.4f}", ha="center", va="bottom", fontsize=7, color="blue")
 
-        self._save_figure(fig, "ssim_boxplots")
+        self._save_figure(fig, f"{metric_name.lower()}_boxplots")
         if self.show_plots:
             plt.show()
         plt.close('all')
         return best_pipeline
 
     def plot_metric_maps(self, pipeline_name: str, metrics: dict):
+        """Plots maps showing the distribution of specified metrics for a given model pipeline, along with boxplots comparing the metric distributions across pipelines.
+        Args:
+            pipeline_name (str): The name of the model pipeline for which to plot the metric maps.
+            metrics (dict): A dictionary of metric names and their corresponding values to be plotted on the maps.
+        """
         if not (self.save_plots or self.show_plots):
             return
 
@@ -382,6 +409,11 @@ class plotter:
         plt.close('all')
 
     def log_typst_table(self, logger, metrics: dict):
+        """Logs a typst-formatted table containing the average metric values for each model pipeline configuration, grouped by model architecture, loss function, and optimizer.
+        Args:
+            logger (logging.Logger): A logging.Logger instance for logging messages.
+            metrics (dict): A dictionary of metric names and their corresponding values to be included in the table.
+        """
         logger.info("Logging typst table for geopandas dataframe. Entirety of dataframe is:")
         logger.info("-" * 30)
         logger.info("\n" + self.gdf.to_string())

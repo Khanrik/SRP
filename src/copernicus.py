@@ -14,6 +14,12 @@ from tqdm import tqdm
 
 
 class Copernicus:
+    """Class for fetching and processing DEM data from the Copernicus dataset using the Microsoft Planetary Computer STAC API. The class allows for searching, merging, reprojecting, dividing, and writing DEM data based on a specified area of interest (AOI) and target resolution. It also includes functionality to accommodate for the limits of the Dataforsyningen dataset when reprojecting the data.
+    Args:
+        aoi (BoundingBoxDegree): Area of interest defined by bounding box (lon_min, lat_min, lon_max, lat_max).
+        target_crs (str): CRS to reproject DEM data to before chunking.
+        dataforsyningen (bool): Whether to accomodate for dataforsyningen limits.
+    """
     # bounding box limits for dataforsyningen in EPSG:25832
     LIMITS = BoundingBoxMeter(x_min=441000, y_min=6049000, x_max=894000, y_max=6403000)
 
@@ -40,7 +46,7 @@ class Copernicus:
     def get_data(self, target_resolution: tuple[int, int]) -> tuple[List[xr.DataArray], xr.DataArray]:
         """main function to get data from copernicus
         Args:
-            target_resolution: The desired resolution of the output chunks in pixels (height, width)
+            target_resolution (tuple[int, int]): The desired resolution of the output chunks in pixels (height, width)
 
         Returns:
             divided_data,merged_data:
@@ -58,6 +64,12 @@ class Copernicus:
 
 
     def search(self, collection_id: str = "cop-dem-glo-30") -> List[pystac.Item]:
+        """Searches the Microsoft Planetary Computer STAC API for items in the specified collection that intersect with the area of interest (AOI) and have a ground sample distance (GSD) of 30 meters. The search results are returned as a list of pystac.Item objects.
+        Args:
+            collection_id (str, optional): The ID of the collection to search within the STAC API. Defaults to "cop-dem-glo-30".
+        Returns:
+            List[pystac.Item]: A list of pystac.Item objects that match the search criteria.
+        """
         catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
                                         modifier=planetary_computer.sign_inplace)
         search = catalog.search(
@@ -74,6 +86,12 @@ class Copernicus:
     
 
     def merge(self, items: List[pystac.Item]) -> xr.DataArray:
+        """Merges the DEM data from the provided list of pystac.Item objects into a single xarray.DataArray. Each item is accessed using its signed URL, and the resulting rasters are combined using xarray's combine_by_coords function with an outer join.
+        Args:
+            items (List[pystac.Item]): A list of pystac.Item objects containing DEM data.
+        Returns:
+            xr.DataArray: A single xarray.DataArray containing the merged DEM data.
+        """
         rasters = []
 
         for item in tqdm(items, desc="Collecting chunks to merge"):
@@ -88,6 +106,12 @@ class Copernicus:
     
     
     def reproject(self, data: xr.DataArray) -> xr.DataArray:
+        """Reprojects the provided xarray.DataArray to the target CRS specified in the class instance, while also accommodating for the limits of the Dataforsyningen dataset. The function first reprojects the data to the target CRS, then filters out any areas that fall outside the bounds of the Dataforsyningen dataset (if applicable) to ensure that the resulting data is suitable for comparison with Dataforsyningen data.
+        Args:
+            data (xr.DataArray): The input xarray.DataArray to be reprojected.
+        Returns:
+            xr.DataArray: The reprojected xarray.DataArray.
+        """
         # bound til dataforsyningen limits
         transformer = Transformer.from_crs("EPSG:4326", self.target_crs, always_xy=True).transform
         aoi_meter = BoundingBoxMeter(*transformer(self.aoi.lon_min, self.aoi.lat_min), *transformer(self.aoi.lon_max, self.aoi.lat_max))
@@ -108,6 +132,13 @@ class Copernicus:
     
 
     def divide(self, data: xr.DataArray, target_resolution: tuple[int, int]) -> List[xr.DataArray]:
+        """Divides the provided xarray.DataArray into smaller chunks based on the specified target resolution in pixels. The function iterates through the data in steps of the target resolution, creating chunks of the specified size. It also filters out any chunks that have a sum of pixel values below a certain threshold, which is used to exclude areas that are likely to be water (i.e., have very low elevation values).
+        Args:
+            data (xr.DataArray): The input xarray.DataArray to be divided.
+            target_resolution (tuple[int, int]): The desired resolution of the output chunks in pixels (height, width).
+        Returns:
+            List[xr.DataArray]: A list of xarray.DataArray objects representing the divided chunks.
+        """
         full_height, full_width = data.shape
         chunk_height, chunk_width = target_resolution
         chunks = []
@@ -154,31 +185,3 @@ class Copernicus:
             return
 
         data.rio.to_raster(out_file)
-
-
-
-# outdated usage of the class
-#
-# def main():
-#     print("Downloading and processing Copernicus DEM data...")
-    
-#     midtjylland = BoundingBoxDegree(lon_min=9.0, lat_min=55.000277777777775, lon_max=9.999583333333334, lat_max=57.0)
-#     copernicus = Copernicus(aoi=midtjylland)
-    
-#     resolution = (512, 512)
-#     chunks, merged_data = copernicus.get_data(target_resolution=resolution)
-
-#     current_dir = Path(__file__).resolve().parent
-#     output_path = current_dir.parent / "data"
-#     data_division = DataDivision(train=0.8, val=0.1, test=0.1)
-#     copernicus.write(chunks, output_path, data_division)
-#     #copernicus.write_merge(merged_data, output_path, "copernicus_merged.tif")
-
-#     print("Done.")
-
-#     copernicus = Copernicus(target_resolution=resolution)
-#     copernicus.get_data(output_path)
-    
-
-# if __name__ == "__main__":
-#     main()

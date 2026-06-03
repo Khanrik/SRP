@@ -1,7 +1,4 @@
 import torch.nn as nn
-import torch.nn.functional as F
-from torch import Tensor
-from typing import List, Optional, Tuple, Union
 from pytorch_msssim import ms_ssim as MSSSIM, ssim as SSIM  # type: ignore
 
 class SmoothGradLoss(nn.Module):
