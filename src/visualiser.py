@@ -3,9 +3,23 @@ import torch
 from tqdm import tqdm
 from plotter import plotter
 from torch.utils.data import DataLoader
+from logging import Logger
 
-def visualiser(ModelPipelineList: list, plotter_instance: plotter, selected_test_images: DataLoader, denmark_data: list[DataLoader], device: str, metrics: dict, \
-                mean: float, std: float, min_val: float, max_val: float, include_maps: bool = False, include_constant_maps: bool = False, boxplots: bool = True, box_metric: str = 'SSIM'):
+def visualiser(ModelPipelineList: list, 
+               plotter_instance: plotter, 
+               selected_test_images: DataLoader, 
+               denmark_data: list[DataLoader], 
+               device: str, 
+               metrics: dict,
+               logger: Logger,
+               mean: float, 
+               std: float, 
+               min_val: float, 
+               max_val: float, 
+               include_maps: bool = False, 
+               include_constant_maps: bool = False, 
+               boxplots: bool = True, 
+               box_metric: str = 'SSIM'):
     """Visualizes the results of multiple model pipelines on a set of selected test images, and optionally includes metric maps and boxplots for comparison.
     Args:
         ModelPipelineList (list): A list of ModelPipeline instances to be tested.
@@ -18,6 +32,7 @@ def visualiser(ModelPipelineList: list, plotter_instance: plotter, selected_test
         std (float): The standard deviation for normalization.
         min_val (float): The minimum possible value of the images.
         max_val (float): The maximum possible value of the images.
+        logger (Logger): A logger instance for logging the typst table of metrics.
         include_maps (bool, optional): A boolean indicating whether to include the data split map in the visualization. Default is False.
         include_constant_maps (bool, optional): A boolean indicating whether to include constant maps in the visualization. Default is False.
         boxplots (bool, optional): A boolean indicating whether to include boxplots in the visualization. Default is True.
@@ -92,15 +107,15 @@ def visualiser(ModelPipelineList: list, plotter_instance: plotter, selected_test
     plotter_instance.plot_horizontal_results(test_result, interpolation="nearest")
     
     if boxplots or include_maps:
-        plotter_instance.get_dataframe(denmark_data, ModelPipelineList, metrics, min_val=min_val, max_val=max_val)
+        plotter_instance.get_dataframe(denmark_data, ModelPipelineList, metrics, min_val=min_val, max_val=max_val, mean_val=mean, std_val=std)
         best_pipeline = plotter_instance.plot_boxplots(metric_name=box_metric) 
 
     if include_maps:
         plotter_instance.plot_metric_maps(best_pipeline, metrics)
-        plotter_instance.log_typst_table(metrics)
+        plotter_instance.log_typst_table(logger, metrics)
 
     if include_constant_maps:
-            plotter_instance.plot_datasplit_map()
-            plotter_instance.plot_extrema_map()
+        plotter_instance.plot_datasplit_map()
+        plotter_instance.plot_extrema_map()
     
     return
