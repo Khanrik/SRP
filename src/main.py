@@ -118,8 +118,8 @@ def main(logger: logging.Logger):
 
     downsampled_data = dataset_to_downsampled_dataset(training_data, downsample_factor=3, logger=logger)
 
-    model_config_SGD = copy.deepcopy(model_config)
-    model_config_SGD["OPTIMIZER"] = optim.SGD
+    # model_config_SGD = copy.deepcopy(model_config)
+    # model_config_SGD["OPTIMIZER"] = optim.SGD
     model_config_RMS = copy.deepcopy(model_config)
     model_config_RMS["OPTIMIZER"] = optim.RMSprop
 
@@ -133,7 +133,7 @@ def main(logger: logging.Logger):
         datasets=[training_data, downsampled_data],
         loss_functions=[SmoothLoss, SmoothGradLoss, SSIMLoss, MSESSIMLoss, MAESSIMLoss, MSSSIMLoss],
         models=[unet_model, LoGSRN_model],
-        configs=[model_config, model_config_SGD, model_config_RMS],
+        configs=[model_config, model_config_RMS],
         plotter_instance=plotter_instance,
         logger=logger
     )
