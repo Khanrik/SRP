@@ -230,13 +230,10 @@ def get_base_dataset(lr_data_dir_list: list[Path],
     train_dataset = DatasetInterface(all_pairs[:train_end], category=category or "training") if train_count != 0 else None
     val_dataset = DatasetInterface(all_pairs[train_end:val_end], category=category or "validation") if val_count != 0 else None
     test_dataset = DatasetInterface(all_pairs[val_end:], category=category or "test") if test_count != 0 else None    
-
-    if train_count != 0:
-        train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda, shuffle_bool=randomize)
-    if val_count != 0:
-        val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize)
-    if test_count != 0:
-        test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize)
+    
+    train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda, shuffle_bool=randomize) if train_count != 0 else None
+    val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize) if val_count != 0 else None
+    test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize) if test_count != 0 else None
 
     if train_dataloader is not None:
         min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, train_dataloader, _ = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger)
@@ -283,7 +280,9 @@ def dataset_to_downsampled_dataset(dataset: tuple[DataLoader, DataLoader, DataLo
     downsampled_train_loader = loader_to_downsampled_loader(train_loader, downsample_factor)
     downsampled_val_loader = loader_to_downsampled_loader(val_loader, downsample_factor)
     downsampled_test_loader = loader_to_downsampled_loader(test_loader, downsample_factor)
-    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(downsampled_train_loader, include_plot=False, logger=logger)
+    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, downsampled_train_loader, _ = compute_extremal_pixel_value(downsampled_train_loader, include_plot=False, logger=logger)
+    _, _, _, _, downsampled_val_loader, _ = compute_extremal_pixel_value(downsampled_val_loader, include_plot=False, logger=logger)
+    _, _, _, _, downsampled_test_loader, _ = compute_extremal_pixel_value(downsampled_test_loader, include_plot=False, logger=logger)
     return (downsampled_train_loader, downsampled_val_loader, downsampled_test_loader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value)
 
 
@@ -320,7 +319,7 @@ def compute_extremal_pixel_value(loader: DataLoader,
     amount_of_min_values_disregarded = 0
     unfiltered_dataloader = copy.deepcopy(loader)
 
-    for i, (lr, hr) in tqdm(enumerate(loader), desc="Computing test dataset pixel value statistics"):
+    for i, (lr, hr) in tqdm(enumerate(unfiltered_dataloader), desc="Computing test dataset pixel value statistics", total=len(unfiltered_dataloader)):
         lr_min = lr.min().item()
         hr_min = hr.min().item()
         lr_max = lr.max().item()
