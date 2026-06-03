@@ -179,7 +179,7 @@ class plotter:
             plt.show()
         plt.close('all')
 
-    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list: list, metrics: dict, min_val: float=0.0, max_val: float=1.0, crs: str="EPSG:25832"):
+    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list: list, metrics: dict, min_val: float=0.0, max_val: float=1.0, mean_val=0.0, std_val=1.0, crs: str="EPSG:25832"):
         """Generates a GeoDataFrame containing the evaluation metrics for each sample in the dataset, along with their corresponding geometries.
         Args:
             loaders (list[DataLoader]): A list of DataLoaders containing the datasets to be evaluated.
@@ -187,6 +187,8 @@ class plotter:
             metrics (dict): A dictionary of metrics to be calculated.
             min_val (float, optional): The minimum value for normalization. Defaults to 0.0.
             max_val (float, optional): The maximum value for normalization. Defaults to 1.0.
+            mean_val (float, optional): The mean pixel value for normalization. Defaults to 0.0.
+            std_val (float, optional): The standard deviation of pixel values for normalization. Defaults to 1.0.
             crs (str, optional): The coordinate reference system for the GeoDataFrame. Defaults to "EPSG:25832".
         """
         rows = []
@@ -195,10 +197,11 @@ class plotter:
             for pipeline in model_pipeline_list:
                 pipeline.model.eval()
                 with torch.no_grad():
-                    for (lr, hr), dataset_indices in tqdm(zip(loader, loader.batch_sampler), desc=f"Evaluating {pipeline.pth_path_name}", leave=False, total=len(loader)):
-                        lr = lr.to(pipeline.device)
-                        hr = hr.to(pipeline.device)
-                        pred = pipeline.model(lr)
+                    for (LR, HR), dataset_indices in tqdm(zip(loader, loader.batch_sampler), desc=f"Evaluating {pipeline.pth_path_name}", leave=False, total=len(loader)):
+                        LR = LR.float().to(self.device)
+                        HR = HR.float().to(self.device)
+                        normalized_LR, _ = normalize_targets(targets=[LR, HR], mean=mean_val, std=std_val)
+                        pred = pipeline.model(normalized_LR)
                         batch_size = pred.shape[0]
 
                         for i in range(batch_size):
@@ -218,14 +221,14 @@ class plotter:
                                     bbox.right,
                                     bbox.top,
                                 ),
-                                "lr_min": float(torch.min(lr[i:i+1]).detach().cpu().item()),
-                                "lr_max": float(torch.max(lr[i:i+1]).detach().cpu().item()),
-                                "hr_min": float(torch.min(hr[i:i+1]).detach().cpu().item()),
-                                "hr_max": float(torch.max(hr[i:i+1]).detach().cpu().item()),
+                                "lr_min": float(torch.min(LR[i:i+1]).detach().cpu().item()),
+                                "lr_max": float(torch.max(LR[i:i+1]).detach().cpu().item()),
+                                "hr_min": float(torch.min(HR[i:i+1]).detach().cpu().item()),
+                                "hr_max": float(torch.max(HR[i:i+1]).detach().cpu().item()),
                             }
 
                             pred_sample = pred[i:i+1]
-                            hr_sample = hr[i:i+1]
+                            hr_sample = HR[i:i+1]
                             results = metric_items(pred_sample, hr_sample, metrics, min_val, max_val)
                             for name, value in results:
                                 row[name] = float(value)
