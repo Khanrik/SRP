@@ -179,17 +179,17 @@ class plotter:
             plt.show()
         plt.close('all')
 
-    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list: list, metrics: dict, min_val: float=0.0, max_val: float=1.0, mean_val=0.0, std_val=1.0, crs: str="EPSG:25832"):
+    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list: list, metrics: dict, min_val: float, max_val: float, mean_val: float, std_val: float, crs: str="EPSG:25832"):
         """Generates a GeoDataFrame containing the evaluation metrics for each sample in the dataset, along with their corresponding geometries.
         Args:
             loaders (list[DataLoader]): A list of DataLoaders containing the datasets to be evaluated.
             model_pipeline_list (list): A list of model pipelines to be evaluated.
             metrics (dict): A dictionary of metrics to be calculated.
-            min_val (float, optional): The minimum value for normalization. Defaults to 0.0.
-            max_val (float, optional): The maximum value for normalization. Defaults to 1.0.
-            mean_val (float, optional): The mean pixel value for normalization. Defaults to 0.0.
-            std_val (float, optional): The standard deviation of pixel values for normalization. Defaults to 1.0.
-            crs (str, optional): The coordinate reference system for the GeoDataFrame. Defaults to "EPSG:25832".
+            min_val (float): The minimum value for normalization.
+            max_val (float): The maximum value for normalization.
+            mean_val (float): The mean pixel value for normalization.
+            std_val (float): The standard deviation of pixel values for normalization.
+            crs (str): The coordinate reference system for the GeoDataFrame.
         """
         rows = []
         for loader in loaders:
@@ -203,6 +203,7 @@ class plotter:
                         normalized_LR, _ = normalize_targets(targets=[LR, HR], mean=mean_val, std=std_val)
                         pred = pipeline.model(normalized_LR)
                         batch_size = pred.shape[0]
+                        pred = denormalize_target(pred, mean=mean_val, std=std_val)
 
                         for i in range(batch_size):
                             dataset_idx = int(dataset_indices[i])

@@ -84,8 +84,9 @@ class DatasetInterface(Dataset):
         self.same_as_lr_flags: list[bool] = []
         self.bboxes: list[rasterio.coords.BoundingBox] = []
         for pair in tqdm(data_pairs, desc=f"loading {category} data"):
-            self.lr.append(Image.open(pair.lr))
-            self.hr.append(Image.open(pair.hr))
+            lr_img = Image .open(pair.lr)
+            self.lr.append(lr_img)
+            self.hr.append(lr_img if pair.same_as_lr else Image.open(pair.hr))
             self.same_as_lr_flags.append(pair.same_as_lr)
             
             # saving bbox for visualization maps
