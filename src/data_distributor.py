@@ -20,6 +20,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 class DataPair:
     lr: Path
     hr: Path
+    same_as_lr: bool = False
 
 @dataclass
 class BoundingBoxDegree:
@@ -63,6 +64,12 @@ class DatasetInterface(Dataset):
                  data_pairs: list[DataPair],
                  lr_target_size: tuple[int, int] = (128, 128),
                  category: str = ""):
+        """Initializes the dataset by loading the low resolution and high resolution images from the file paths specified in the data_pairs list, applying the necessary transformations, and storing them in memory for later retrieval.
+        Args:
+            data_pairs (list[DataPair]): A list of DataPair objects containing the file paths for the low resolution and high resolution images, as well as flags indicating whether the HR image is the same as the LR image.
+            lr_target_size (tuple[int, int], optional): The target size for the low resolution images (width, height) in pixels. The high resolution images will be resized to 3 times this size. Default is (128, 128).
+            category (str, optional): A string to be used in logging and progress bars to indicate the category of the dataset (e.g., "training", "validation", "test"). Default is an empty string.
+        """
         self.lr_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Resize(lr_target_size)
@@ -74,10 +81,13 @@ class DatasetInterface(Dataset):
 
         self.lr: list[Image.Image] = []
         self.hr: list[Image.Image] = []
+        self.same_as_lr_flags: list[bool] = []
         self.bboxes: list[rasterio.coords.BoundingBox] = []
         for pair in tqdm(data_pairs, desc=f"loading {category} data"):
-            self.lr.append(Image.open(pair.lr))
-            self.hr.append(Image.open(pair.hr))
+            lr_img = Image .open(pair.lr)
+            self.lr.append(lr_img)
+            self.hr.append(lr_img if pair.same_as_lr else Image.open(pair.hr))
+            self.same_as_lr_flags.append(pair.same_as_lr)
             
             # saving bbox for visualization maps
             with rasterio.open(pair.lr) as src:
@@ -86,15 +96,11 @@ class DatasetInterface(Dataset):
             self.bboxes.append(bounds)
         self.category = category
 
-    def _use_lr_transform_for_hr(self, idx: int) -> bool:
-        lr_filename = str(getattr(self.lr[idx], "filename", "")).lower()
-        hr_filename = str(getattr(self.hr[idx], "filename", "")).lower()
-        return "ethiopia" in lr_filename and "ethiopia" in hr_filename
-
     def __add__(self, other):
         combined = copy.deepcopy(self)
         combined.lr += other.lr 
         combined.hr += other.hr
+        combined.same_as_lr_flags += other.same_as_lr_flags
         combined.bboxes += other.bboxes
         
         return combined
@@ -103,7 +109,7 @@ class DatasetInterface(Dataset):
         return len(self.lr)
 
     def __getitem__(self, idx: int):
-        hr_transform = self.lr_transform if self._use_lr_transform_for_hr(idx) else self.hr_transform
+        hr_transform = self.lr_transform if self.same_as_lr_flags[idx] else self.hr_transform
         return  self.lr_transform(self.lr[idx]).float(), \
             hr_transform(self.hr[idx]).float()
     
@@ -111,7 +117,16 @@ class DatasetInterface(Dataset):
         return self.bboxes[idx]
 
 def _pair_files(lr_data_dir_list: list[Path],
-                hr_data_dir_list: list[Path]) -> list[DataPair]:
+                hr_data_dir_list: list[Path],
+                same_as_lr_regions: set[str] | None = None) -> list[DataPair]:
+    """Pairs low resolution and high resolution image files based on their filenames and returns a list of DataPair objects containing the file paths and same_as_lr flags.
+    Args:
+        lr_data_dir_list (list[Path]): A list of directories containing the low resolution images.
+        hr_data_dir_list (list[Path]): A list of directories containing the high resolution images.
+        same_as_lr_regions (set[str] | None, optional): A set of region names (derived from file paths) for which the HR image is the same as the LR image. This is used to set the same_as_lr flag in the DataPair objects. Default is None.
+    Returns:
+        list[DataPair]: A list of DataPair objects containing the file paths and same_as_lr flags.
+    """
     lr_files = [f for directory in lr_data_dir_list for f in directory.glob("*.tif")]
     hr_files = [f for directory in hr_data_dir_list for f in directory.glob("*.tif")]
 
@@ -124,20 +139,29 @@ def _pair_files(lr_data_dir_list: list[Path],
     for lr_file in lr_files:
         key = "_".join(lr_file.stem.split("_")[-2:])
         hr_file = hr_by_key[key]
-        pairs.append(DataPair(lr=lr_file, hr=hr_file))
+        region_name = lr_file.parent.name.lower()
+        pairs.append(DataPair(
+            lr=lr_file,
+            hr=hr_file,
+            same_as_lr=region_name in same_as_lr_regions if same_as_lr_regions is not None else False,
+        ))
 
     return pairs
 
-def get_augmented_dataset(lr_data_dir_list: list[Path],
-                          hr_data_dir_list: list[Path],
-                          division: DataDivision = DataDivision(train=0.8, val=0.1, test=0.1)) :
-    pass
 
 
 
-def prepare_dataloader(dataset, batch_size, pin_memory, num_workers=0, shuffle_bool=True):
-    # This function initializes the iterable over the datasets for training, validation, and testing 
-    # with the specified batch size and the Trainer's num_workers and pin_memory settings.
+def prepare_dataloader(dataset: torch.utils.data.Dataset, batch_size: int, pin_memory: bool, num_workers: int = 0, shuffle_bool: bool = True)-> DataLoader:
+    """Prepares a DataLoader from a given dataset with the specified parameters.
+    Args:
+        dataset (Dataset): The dataset to be loaded into the DataLoader.
+        batch_size (int): The batch size to be used for loading the data.
+        pin_memory (bool): A boolean indicating whether to use pinned memory for faster data transfer to CUDA-enabled GPUs.
+        num_workers (int, optional): The number of subprocesses to use for data loading. Default is 0, which means that the data will be loaded in the main process.
+        shuffle_bool (bool, optional): A boolean indicating whether to shuffle the data at every epoch. Default is True.
+    Returns:
+        DataLoader: The prepared DataLoader.
+    """
     dataloader = DataLoader(
         dataset=dataset,
         num_workers=num_workers,
@@ -164,11 +188,32 @@ def get_base_dataset(lr_data_dir_list: list[Path],
                      category: str = None,
                      include_plot: bool = False,
                      logger: logging.Logger = None,
+                     same_as_lr_regions: set[str] | None = None,
                      compute_extremals: bool = True
                      ) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
+    """Gets the base dataset for training, validation, and testing.
+    
+    Args:
+        lr_data_dir_list (list[Path]): A list of directories containing the low resolution images.
+        hr_data_dir_list (list[Path]): A list of directories containing the high resolution images.
+        batch_size (int): The batch size to be used for the dataloaders.
+        cuda (bool): A boolean indicating whether to use CUDA for the dataloaders.
+        division (DataDivision, optional): A DataDivision object defining the proportions of data to be used for training, validation, and testing. Default is DataDivision(train=0.8, val=0.1, test=0.1).
+        randomize (bool, optional): A boolean indicating whether to randomize the order of the data before splitting it into training, validation, and test sets. Default is True.
+        seed (int, optional): The seed to be used for randomization if `randomize` is True. Default is 12345678.
+        category (str, optional): A string to be used in logging and progress bars to indicate the category of the dataset (e.g., "training", "validation", "test"). Default is None.
+        include_plot (bool, optional): A boolean indicating whether to include a plot of pixel value distribution in the output. Default is False.
+        logger (logging.Logger, optional): Alogging.Logger instance for logging messages. If None, no logging will be performed. Default is None.
+        same_as_lr_regions (set[str] | None, optional): A set of region names (derived from file paths) for which the HR image is the same as the LR image. This is used to apply different transformations to these images in the DatasetInterface. Default is None.
+        compute_extremals (bool, optional): A boolean indicating whether to compute and return extremal pixel values (min, max, mean, std) across the dataset. Default is True.
+
+    Returns:
+        tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]: A tuple containing the training, validation, and test dataloaders, as well as the minimum pixel value, maximum pixel value, mean pixel value, and standard deviation of pixel values across the dataset.
+    
+    """
     if division.train + division.val + division.test != 1.0:
         raise ValueError(f"Data division proportions must sum to 1.0. Got {division.train} + {division.val} + {division.test} = {division.train + division.val + division.test}")
-    all_pairs = _pair_files(lr_data_dir_list, hr_data_dir_list)
+    all_pairs = _pair_files(lr_data_dir_list, hr_data_dir_list, same_as_lr_regions=same_as_lr_regions)
     if randomize:
         Random(seed).shuffle(all_pairs)
     N = len(all_pairs)
@@ -236,15 +281,15 @@ def dataset_to_downsampled_dataset(dataset: tuple[DataLoader, DataLoader, DataLo
     min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(downsampled_train_loader, include_plot=False, logger=logger)
     return (downsampled_train_loader, downsampled_val_loader, downsampled_test_loader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value)
 
-def filter_min_outliers(data, z_threshold=3):
+def filter_min_outliers(data: list, z_threshold: float = 3) -> tuple[list, int]:
     """Filters out lower-tail outliers from the data using the Z-score method.
     
     Args:
-        data: A list of numerical values.
-        z_threshold: The Z-score threshold to identify outliers. Default is 3.
+        data (list): A list of numerical values.
+        z_threshold (float, optional): The Z-score threshold to identify outliers. Default is 3.
     
     Returns:
-        A list of values with outliers removed and the amount of values disregarded.
+        tuple[list, int]: A list of values with outliers removed and the amount of values disregarded.
     """
     if len(data) == 0:
         return [0.0], 0
@@ -264,8 +309,12 @@ def compute_extremal_pixel_value(loader: DataLoader,
                                  logger: logging.Logger = None) -> tuple[float, float, float, float]:
     """Computes the minimum and maximum pixel values across the entire dataset
     
+    Args:
+        loader (DataLoader): A DataLoader containing the dataset for which to compute the extremal pixel values.
+        include_plot (bool, optional): A boolean indicating whether to include a plot of pixel value distribution in the output. Default is False.
+        logger (logging.Logger, optional): A logging.Logger instance for logging messages. If None, no logging will be performed. Default is None.
     Returns:
-        (min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value): The minimum and maximum pixel values found in the dataset
+        tuple[float, float, float, float]: The minimum, maximum, mean, and standard deviation of pixel values found in the dataset
     """
     if len(loader.dataset) < 1:
         return 0, 0, 0, 0

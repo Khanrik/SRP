@@ -28,16 +28,17 @@ class ModelPipeline:
         criterion: nn.Module = GradLoss(),
         downsampled_data: bool = False,
     ):
-        """Returns: Self. Initializes the ModelPipeline with the model, optimizer, loss function, device, and learning rate.
+        """Class for training, validating, and testing a model with a given configuration, and saving the model. Designed to be flexible and reusable for different models, loss functions, optimizers, and datasets.
+        
         Args:
-            model: The neural network model.
-            model_config: A dictionary containing model configuration parameters such as learning rate, device, optimizer, etc.
-            plotter: An instance of the plotter class for visualization.
-            logger: An instance of the logger that should be initialized in main.
-            max_pixels_per_image: An integer specifying the maximum number of pixels per image to prevent OOM errors.
-            target_norm_eps: A small float value to prevent division by zero during normalization of targets.
-            criterion: The loss function to be used for training the model. Defaults to GradLoss.
-            downsampled_data: A boolean indicating whether the LR data is downsampled HR.
+            model (nn.Module): The neural network model.
+            model_config (dict): A dictionary containing model configuration parameters such as learning rate, device, optimizer, etc.
+            plotter (plotter): An instance of the plotter class for visualization.
+            logger (logging.Logger): An instance of the logger that should be initialized in main.
+            max_pixels_per_image (int, optional): An integer specifying the maximum number of pixels per image to prevent OOM errors. Defaults to 1024 * 1024.
+            target_norm_eps (float, optional): A small float value to prevent division by zero during normalization of targets. Defaults to 1e-6.
+            criterion (nn.Module, optional): The loss function to be used for training the model. Defaults to GradLoss.
+            downsampled_data (bool, optional): A boolean indicating whether the LR data is downsampled HR. Defaults to False.
         """
         self.model = copy.deepcopy(model)
         self.model = self.model.to(model_config["DEVICE"])
@@ -95,8 +96,17 @@ class ModelPipeline:
         training_state: Literal["train", "val", "test"],
         epoch: int,
         use_amp: bool,
-        test_images: list[torch.Tensor] = None,
-    ):
+    ) -> list:
+        """Runs a training, validation, or test loop for one epoch and returns the average loss and metric values for the epoch.
+        Args:
+            dataloader (DataLoader): The dataloader to iterate through for this loop.
+            training_state (str): A string indicating whether this is a "train", "val", or "test" loop, used for logging and visualization purposes.
+            epoch (int): The current epoch number, used for logging and visualization purposes.
+            use_amp (bool): A boolean indicating whether to use automatic mixed precision (AMP) for this loop to reduce memory usage. Should be True for training loops and can be False for validation and test loops if desired.
+
+        Returns:
+            out (list): A list of average loss and metric values for the epoch, in the order of ["Loss", *metric_names].
+        """
         running = {}
         for metric_name in self.metrics.keys():
             running[metric_name] = []
@@ -174,9 +184,9 @@ class ModelPipeline:
     
 
     def train(self, retrain=False):
-        """Returns: training and validation losses and difference in height coefficients per epoch for analysis and debugging.
+        """ Trains the model
         Args:
-
+            retrain (bool, optional): A boolean indicating whether to retrain the model from scratch. If False, the method will attempt to load existing model weights from the checkpoints directory and skip training. If True, the model will be trained for the specified number of epochs and the weights will be saved to the checkpoints directory. Default is False.
         """
         if retrain:
             print(f"Starting training for {self.pth_path_name}")
@@ -329,7 +339,7 @@ class ModelPipeline:
         
 
     def test(self):
-        """Returns: test loss and difference coefficient for the test dataset."""
+        """Logs the running time and test metrics."""
         
         start_time = time.time()
         self.model.eval()

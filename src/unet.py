@@ -50,6 +50,7 @@ class UpSample_last(nn.Module):
         return self.conv(x)
     
 class UNet(nn.Module):
+    """UNet architecture for image super-resolution."""
     def __init__(self, in_channels, num_classes):
         super().__init__()
         self.first_up_convolution_1 = nn.ConvTranspose2d(in_channels, 32, kernel_size=3, stride=3)

@@ -2,6 +2,7 @@
 import torch.nn as nn
 
 class CNN(nn.Module):
+    """CNN architecture for image super-resolution."""
     def __init__(self, in_channels, num_classes):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=3, padding=1)
