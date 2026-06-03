@@ -194,8 +194,7 @@ def get_base_dataset(lr_data_dir_list: list[Path],
                      category: str = None,
                      include_plot: bool = False,
                      logger: logging.Logger = None,
-                     same_as_lr_regions: set[str] | None = None,
-                     compute_extremals: bool = True
+                     same_as_lr_regions: set[str] | None = None
                      ) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
     """Gets the base dataset for training, validation, and testing.
     
@@ -211,8 +210,6 @@ def get_base_dataset(lr_data_dir_list: list[Path],
         include_plot (bool, optional): A boolean indicating whether to include a plot of pixel value distribution in the output. Default is False.
         logger (logging.Logger, optional): Alogging.Logger instance for logging messages. If None, no logging will be performed. Default is None.
         same_as_lr_regions (set[str] | None, optional): A set of region names (derived from file paths) for which the HR image is the same as the LR image. This is used to apply different transformations to these images in the DatasetInterface. Default is None.
-        compute_extremals (bool, optional): A boolean indicating whether to compute and return extremal pixel values (min, max, mean, std) across the dataset. Default is True.
-
     Returns:
         tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]: A tuple containing the training, validation, and test dataloaders, as well as the minimum pixel value, maximum pixel value, mean pixel value, and standard deviation of pixel values across the dataset.
     
@@ -226,26 +223,28 @@ def get_base_dataset(lr_data_dir_list: list[Path],
 
     train_count = int(N * division.train)
     val_count = int(N * division.val)
+    test_count = N - train_count - val_count
     train_end = train_count
     val_end = train_count + val_count
 
-    train_dataset = DatasetInterface(all_pairs[:train_end], category=category or "training")
-    val_dataset = DatasetInterface(all_pairs[train_end:val_end], category=category or "validation")
-    test_dataset = DatasetInterface(all_pairs[val_end:], category=category or "test")
+    train_dataset = DatasetInterface(all_pairs[:train_end], category=category or "training") if train_count != 0 else None
+    val_dataset = DatasetInterface(all_pairs[train_end:val_end], category=category or "validation") if val_count != 0 else None
+    test_dataset = DatasetInterface(all_pairs[val_end:], category=category or "test") if test_count != 0 else None    
 
-    train_dataloader = None
-    val_dataloader = None
     if train_count != 0:
         train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda, shuffle_bool=randomize)
     if val_count != 0:
         val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize)
-    test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize)
+    if test_count != 0:
+        test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize)
 
-    if compute_extremals:
-        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger) if train_dataloader is not None else compute_extremal_pixel_value(test_dataloader, include_plot=include_plot, logger=logger)
+    if train_dataloader is not None:
+        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, train_dataloader, _ = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger)
+        _, _, _, _, val_dataloader, _ = compute_extremal_pixel_value(val_dataloader, include_plot=False, logger=logger)
+        _, _, _, _, test_dataloader, _ = compute_extremal_pixel_value(test_dataloader, include_plot=False, logger=logger)
     else:
-        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = 0.0, 0.0, 0.0, 0.0
-    
+        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, test_dataloader, _ = compute_extremal_pixel_value(test_dataloader, include_plot=include_plot, logger=logger)
+
     if ((train_dataloader is None or val_dataloader is None) and test_dataloader is None):
         raise ValueError(
             f"Dataloaders not properly initialized. Train samples: {len(train_dataset)}, "

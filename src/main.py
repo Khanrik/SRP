@@ -77,8 +77,7 @@ def main(logger):
         batch_size=model_config["BATCH_SIZE"],
         cuda=model_config["DEVICE"] == "cuda",
         include_plot=False,
-        logger=logger,
-        compute_extremals=True
+        logger=logger
     )
     downsampled_data = dataset_to_downsampled_dataset(data, downsample_factor=3, logger=logger)
 
@@ -118,8 +117,7 @@ def main(logger):
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         randomize=False,
         category="visualization",
-        logger=logger,
-        compute_extremals=False
+        logger=logger
     )[2]  # only test data is needed for visualization
 
     regions = ["ethiopia"]
@@ -131,8 +129,7 @@ def main(logger):
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         randomize=False,
         category="visualization",
-        logger=logger,
-        compute_extremals=False
+        logger=logger
     )
     
 
@@ -145,8 +142,7 @@ def main(logger):
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         category="evaluation",
         randomize=False,
-        logger=logger,
-        compute_extremals=False
+        logger=logger
     )[2]
     
 
