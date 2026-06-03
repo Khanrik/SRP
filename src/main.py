@@ -144,8 +144,8 @@ def main(logger: logging.Logger):
     visualiser(
         list(pipeline_dict.values()),
         plotter_instance,
-        visualization_data,
-        [evaluation_data, visualization_data],
+        visualization_data[2],
+        [evaluation_data[2], visualization_data[2]],
         model_config["DEVICE"],
         metrics,
         min_val=training_data[3],
@@ -159,7 +159,7 @@ def main(logger: logging.Logger):
     )
 
     visualiser_no_GT(
-        [pipeline_dict["UNet_SSIMLoss_RMSprop"]],
+        list(pipeline_dict.values()),
         plotter_instance,
         visual_eval_data,  # only test data is needed for visualization
         model_config["DEVICE"],

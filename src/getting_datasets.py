@@ -1,7 +1,7 @@
 from data_distributor import get_base_dataset, DataDivision
 from pathlib import Path
+from itertools import chain
 import torch
-import numpy as np
 import logging
 
 def getting_datasets(training_regions: list[str], evaluation_regions: list[str], visualization_regions: list[str], visual_eval_regions: list[str], model_config: dict, logger: logging.Logger) -> tuple[tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, torch.utils.data.Dataset, float, float, float, float], list[tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, torch.utils.data.Dataset, float, float, float, float]]]:
@@ -56,9 +56,9 @@ def getting_datasets(training_regions: list[str], evaluation_regions: list[str],
     )
     individual_visual_eval=[]
     for region in visual_eval_regions:
-        individual_visual_eval.append(get_base_dataset(
-            lr_data_dir_list=[data_root / "selected" / "lr" / region for region in visual_eval_regions],
-            hr_data_dir_list=[data_root / "selected" / "hr" / region for region in visual_eval_regions],
+        region_test_data = get_base_dataset(
+            lr_data_dir_list=[data_root / "selected" / "lr" / region],
+            hr_data_dir_list=[data_root / "selected" / "hr" / region],
             batch_size=1,
             cuda=model_config["DEVICE"] == "cuda",
             division=DataDivision(train=0.0, val=0.0, test=1.0),
@@ -67,7 +67,8 @@ def getting_datasets(training_regions: list[str], evaluation_regions: list[str],
             logger=logger,
             same_as_lr_regions={region},
             compute_extremals=False
-        ))[2]  # only test data is needed for visual evaluation
-    visual_eval_data = np.concatenate(individual_visual_eval).tolist()
+        )
+        individual_visual_eval.append(region_test_data[2])  # only test data is needed for visual evaluation
+    visual_eval_data = list(chain.from_iterable(individual_visual_eval))
 
     return training_data, evaluation_data, visualization_data, visual_eval_data
