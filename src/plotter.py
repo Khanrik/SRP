@@ -105,7 +105,6 @@ class plotter:
             if len(group) != len(sample_groups[0]):
                 raise ValueError("All result groups must contain the same number of entries.")
 
-
         pages = [sample_groups[start:start + max_rows_per_figure] for start in range(0, len(sample_groups), max_rows_per_figure)]
 
         for page_idx, page_groups in enumerate(pages, start=1):
