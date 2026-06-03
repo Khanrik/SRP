@@ -30,13 +30,11 @@ def datafetching_and_processing(logger: logging.Logger, VisualEvaluationData: li
         Currently, the function is set up to fetch and process data for Denmark and Ethiopia, but it can be easily extended to include additional regions by adding the necessary logic for fetching and processing data for those regions, as well as updating the list of files to move in the 'move_to_selected' function.
     """
     data_dir = Path(__file__).resolve().parent.parent / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
 
     lr_target_resolution = (128, 128)
     hr_target_resolution = 10
     
-    #datafetching and processing
-    if not data_dir.exists():
-        data_dir.mkdir(parents=True, exist_ok=True)
 
     if not (data_dir / "copernicus").exists() or not (data_dir / "dataforsyningen").exists():
         logger.info("Downloading and processing Denmark data...")
@@ -58,9 +56,9 @@ def datafetching_and_processing(logger: logging.Logger, VisualEvaluationData: li
     logger.info("Done fetching data!")
 
 
-def pipelines_creator(datasets:list,loss_functions:list, models:list, configs:list, plotter_instance, logger: logging.Logger)-> dict[str, ModelPipeline]:
+def pipelines_creator(datasets: list, loss_functions: list, models: list, configs: list, plotter_instance: plotter, logger: logging.Logger)-> dict[str, ModelPipeline]:
     pipeline_dict = {}
-    for i,datas in enumerate(datasets):
+    for i, datas in enumerate(datasets):
         
         datarange_for_loss=(datas[4] - datas[3])/datas[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
         losses_initialized = []
@@ -110,7 +108,7 @@ def main(logger: logging.Logger):
 
     plotter_instance = plotter(
         save_dir=current_dir.parent / "checkpoints" / "plots",
-        show_plots=True,
+        show_plots=False,
         save_plots=True,
     )
     
@@ -120,8 +118,8 @@ def main(logger: logging.Logger):
 
     downsampled_data = dataset_to_downsampled_dataset(training_data, downsample_factor=3, logger=logger)
 
-    model_config_SGD = copy.deepcopy(model_config)
-    model_config_SGD["OPTIMIZER"] = optim.SGD
+    # model_config_SGD = copy.deepcopy(model_config)
+    # model_config_SGD["OPTIMIZER"] = optim.SGD
     model_config_RMS = copy.deepcopy(model_config)
     model_config_RMS["OPTIMIZER"] = optim.RMSprop
 
@@ -135,7 +133,7 @@ def main(logger: logging.Logger):
         datasets=[training_data, downsampled_data],
         loss_functions=[SmoothLoss, SmoothGradLoss, SSIMLoss, MSESSIMLoss, MAESSIMLoss, MSSSIMLoss],
         models=[unet_model, LoGSRN_model],
-        configs=[model_config, model_config_SGD, model_config_RMS],
+        configs=[model_config, model_config_RMS],
         plotter_instance=plotter_instance,
         logger=logger
     )

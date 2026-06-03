@@ -113,6 +113,12 @@ class DatasetInterface(Dataset):
         return  self.lr_transform(self.lr[idx]).float(), \
             hr_transform(self.hr[idx]).float()
     
+    def delete_item(self, idx: int):
+        del self.lr[idx]
+        del self.hr[idx]
+        del self.same_as_lr_flags[idx]
+        del self.bboxes[idx]
+    
     def get_bbox(self, idx: int):
         return self.bboxes[idx]
 
@@ -188,8 +194,7 @@ def get_base_dataset(lr_data_dir_list: list[Path],
                      category: str = None,
                      include_plot: bool = False,
                      logger: logging.Logger = None,
-                     same_as_lr_regions: set[str] | None = None,
-                     compute_extremals: bool = True
+                     same_as_lr_regions: set[str] | None = None
                      ) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
     """Gets the base dataset for training, validation, and testing.
     
@@ -205,8 +210,6 @@ def get_base_dataset(lr_data_dir_list: list[Path],
         include_plot (bool, optional): A boolean indicating whether to include a plot of pixel value distribution in the output. Default is False.
         logger (logging.Logger, optional): Alogging.Logger instance for logging messages. If None, no logging will be performed. Default is None.
         same_as_lr_regions (set[str] | None, optional): A set of region names (derived from file paths) for which the HR image is the same as the LR image. This is used to apply different transformations to these images in the DatasetInterface. Default is None.
-        compute_extremals (bool, optional): A boolean indicating whether to compute and return extremal pixel values (min, max, mean, std) across the dataset. Default is True.
-
     Returns:
         tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]: A tuple containing the training, validation, and test dataloaders, as well as the minimum pixel value, maximum pixel value, mean pixel value, and standard deviation of pixel values across the dataset.
     
@@ -220,26 +223,25 @@ def get_base_dataset(lr_data_dir_list: list[Path],
 
     train_count = int(N * division.train)
     val_count = int(N * division.val)
+    test_count = N - train_count - val_count
     train_end = train_count
     val_end = train_count + val_count
 
-    train_dataset = DatasetInterface(all_pairs[:train_end], category=category or "training")
-    val_dataset = DatasetInterface(all_pairs[train_end:val_end], category=category or "validation")
-    test_dataset = DatasetInterface(all_pairs[val_end:], category=category or "test")
-
-    train_dataloader = None
-    val_dataloader = None
-    if train_count != 0:
-        train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda, shuffle_bool=randomize)
-    if val_count != 0:
-        val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize)
-    test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize)
-
-    if compute_extremals:
-        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger) if train_dataloader is not None else compute_extremal_pixel_value(test_dataloader, include_plot=include_plot, logger=logger)
-    else:
-        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = 0.0, 0.0, 0.0, 0.0
+    train_dataset = DatasetInterface(all_pairs[:train_end], category=category or "training") if train_count != 0 else None
+    val_dataset = DatasetInterface(all_pairs[train_end:val_end], category=category or "validation") if val_count != 0 else None
+    test_dataset = DatasetInterface(all_pairs[val_end:], category=category or "test") if test_count != 0 else None    
     
+    train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda, shuffle_bool=randomize) if train_count != 0 else None
+    val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize) if val_count != 0 else None
+    test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize) if test_count != 0 else None
+
+    if train_dataloader is not None:
+        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, train_dataloader, _ = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger)
+        _, _, _, _, val_dataloader, _ = compute_extremal_pixel_value(val_dataloader, include_plot=False, logger=logger)
+        _, _, _, _, test_dataloader, _ = compute_extremal_pixel_value(test_dataloader, include_plot=False, logger=logger)
+    else:
+        min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, test_dataloader, _ = compute_extremal_pixel_value(test_dataloader, include_plot=include_plot, logger=logger)
+
     if ((train_dataloader is None or val_dataloader is None) and test_dataloader is None):
         raise ValueError(
             f"Dataloaders not properly initialized. Train samples: {len(train_dataset)}, "
@@ -278,142 +280,128 @@ def dataset_to_downsampled_dataset(dataset: tuple[DataLoader, DataLoader, DataLo
     downsampled_train_loader = loader_to_downsampled_loader(train_loader, downsample_factor)
     downsampled_val_loader = loader_to_downsampled_loader(val_loader, downsample_factor)
     downsampled_test_loader = loader_to_downsampled_loader(test_loader, downsample_factor)
-    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = compute_extremal_pixel_value(downsampled_train_loader, include_plot=False, logger=logger)
+    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, downsampled_train_loader, _ = compute_extremal_pixel_value(downsampled_train_loader, include_plot=False, logger=logger)
+    _, _, _, _, downsampled_val_loader, _ = compute_extremal_pixel_value(downsampled_val_loader, include_plot=False, logger=logger)
+    _, _, _, _, downsampled_test_loader, _ = compute_extremal_pixel_value(downsampled_test_loader, include_plot=False, logger=logger)
     return (downsampled_train_loader, downsampled_val_loader, downsampled_test_loader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value)
-
-def filter_min_outliers(data: list, z_threshold: float = 3) -> tuple[list, int]:
-    """Filters out lower-tail outliers from the data using the Z-score method.
-    
-    Args:
-        data (list): A list of numerical values.
-        z_threshold (float, optional): The Z-score threshold to identify outliers. Default is 3.
-    
-    Returns:
-        tuple[list, int]: A list of values with outliers removed and the amount of values disregarded.
-    """
-    if len(data) == 0:
-        return [0.0], 0
-    z_scores = stats.zscore(data)
-    values_disregarded_amount = 0
-    filtered_data = []
-    for i, z_score in enumerate(z_scores):  
-        if z_score < -z_threshold:  
-            values_disregarded_amount += 1  
-        else:  
-            filtered_data.append(data[i])  
-    return filtered_data, values_disregarded_amount
 
 
 def compute_extremal_pixel_value(loader: DataLoader,
                                  include_plot: bool = False,
-                                 logger: logging.Logger = None) -> tuple[float, float, float, float]:
+                                 logger: logging.Logger = None,
+                                 threshold: float = -800.0,
+                                 bins: int = 25) -> tuple[float, float, float, float, DataLoader, DataLoader]:
     """Computes the minimum and maximum pixel values across the entire dataset
     
     Args:
         loader (DataLoader): A DataLoader containing the dataset for which to compute the extremal pixel values.
         include_plot (bool, optional): A boolean indicating whether to include a plot of pixel value distribution in the output. Default is False.
         logger (logging.Logger, optional): A logging.Logger instance for logging messages. If None, no logging will be performed. Default is None.
+        threshold (float, optional): A threshold value to filter out minimum outlier values. Meant for NAN filtering. Default is -800.0.
+        bins (int, optional): The number of bins to use for the pixel value distribution histogram. Default is 25.
     Returns:
-        tuple[float, float, float, float]: The minimum, maximum, mean, and standard deviation of pixel values found in the dataset
+        tuple[float, float, float, float, DataLoader, DataLoader]: The minimum, maximum, mean, and standard deviation of pixel values found in the dataset, along with the filtered and unfiltered DataLoaders
     """
     if len(loader.dataset) < 1:
-        return 0, 0, 0, 0
-    min_pixel_values_lr = []
-    max_pixel_values_lr = []
-    min_pixel_values_hr = []
-    max_pixel_values_hr = []
-
+        return 0, 0, 0, 0, loader, loader
+    
     mean_pixel_value = 0.0
     std_pixel_value = 0.0
     total_pixels = 0
+    hist_lr=torch.zeros(bins)
+    hist_hr=torch.zeros(bins)
+    max_pixel_values_lr = []
+    max_pixel_values_hr = []
+    filtered_min_pixel_values_lr = []
+    filtered_min_pixel_values_hr = []
+    dataset_min_pixel_value = float('inf')
+    dataset_max_pixel_value = float('-inf')
+    amount_of_min_values_disregarded = 0
+    unfiltered_dataloader = copy.deepcopy(loader)
 
-    for lr, hr in tqdm(loader, desc="Computing test dataset pixel value statistics"):
-        min_pixel_values_lr.append(lr.min().item())
-        max_pixel_values_lr.append(lr.max().item())
-        min_pixel_values_hr.append(hr.min().item())
-        max_pixel_values_hr.append(hr.max().item())
+    for i, (lr, hr) in tqdm(enumerate(unfiltered_dataloader), desc="Computing test dataset pixel value statistics", total=len(unfiltered_dataloader)):
+        lr_min = lr.min().item()
+        hr_min = hr.min().item()
+        lr_max = lr.max().item()
+        hr_max = hr.max().item()
+
+        max_pixel_values_lr.append(lr_max)
+        max_pixel_values_hr.append(hr_max)
+        
+        hist_lr += torch.histc(lr.flatten(), bins=bins, min=lr_min, max=lr_max)
+        hist_hr += torch.histc(hr.flatten(), bins=bins, min=hr_min, max=hr_max)
+
+        if lr_min < threshold or hr_min < threshold:
+            loader.dataset.delete_item(i)
+            if lr_min < threshold:
+                filtered_min_pixel_values_lr.append(lr_min)
+            else:
+                amount_of_min_values_disregarded += 1
+            if hr_min < threshold:
+                filtered_min_pixel_values_hr.append(hr_min)
+            else:
+                amount_of_min_values_disregarded += 1
+            continue
 
         # Update mean and std
         total_pixels += lr.numel() + hr.numel()
         mean_pixel_value += lr.sum().item() + hr.sum().item()
         std_pixel_value += (lr.std().item() ** 2 * lr.numel() + hr.std().item() ** 2 * hr.numel())
-        # Update histograms
-        flat_lr = lr.flatten()
-        flat_hr = hr.flatten()
-
+        
+        dataset_min_pixel_value = min(dataset_min_pixel_value, lr_min, hr_min)
+        dataset_max_pixel_value = max(dataset_max_pixel_value, lr_max, hr_max)
     
     mean_pixel_value /= total_pixels
     std_pixel_value = (std_pixel_value / total_pixels) ** 0.5
     
-    #combining the min and max pixel values from lr and hr to get the overall min and max pixel values across the dataset
-    filtered_min_pixel_values_lr, amount_of_min_values_disregarded_lr = filter_min_outliers(min_pixel_values_lr, z_threshold=3)
-    filtered_min_pixel_values_hr, amount_of_min_values_disregarded_hr = filter_min_outliers(min_pixel_values_hr, z_threshold=3)
-
-    amount_of_min_values_disregarded = amount_of_min_values_disregarded_lr + amount_of_min_values_disregarded_hr
-    
-    min_pixel_values = filtered_min_pixel_values_lr + filtered_min_pixel_values_hr
-    max_pixel_values = max_pixel_values_lr + max_pixel_values_hr
-
-    dataset_min_pixel_value = min(min_pixel_values) if min_pixel_values else 0.0
-    dataset_max_pixel_value = max(max_pixel_values) if max_pixel_values else 0.0
-    
     if include_plot:
-        
-        bins=25
-
-        hist_lr=torch.zeros(bins)
-        hist_hr=torch.zeros(bins)
-        for lr, hr in tqdm(loader, desc="Creating histogram"):
-            flat_lr = lr.flatten()
-            flat_hr = hr.flatten()
-            hist_lr += torch.histc(flat_lr, bins=bins, min=dataset_min_pixel_value, max=dataset_max_pixel_value)
-            hist_hr += torch.histc(flat_hr, bins=bins, min=dataset_min_pixel_value, max=dataset_max_pixel_value)
-
-        bin_edges = torch.linspace(dataset_min_pixel_value, dataset_max_pixel_value, bins + 1)
-        centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-
-        # plot the box plot of the max and min pixel values across the dataset, lr beside hr, in the same figure with two subplots
-        plt.figure(figsize=(18, 6))
-        plt.subplot(1, 4, 1)
-        plt.boxplot([filtered_min_pixel_values_lr, filtered_min_pixel_values_hr], labels=['LR Min Pixel Values', 'HR Min Pixel Values'])
-        plt.ylabel('Pixel Value')
-        plt.title('Boxplot of Minimum Pixel Values')
-        
-        plt.subplot(1, 4, 2)
-        plt.boxplot([max_pixel_values_lr, max_pixel_values_hr], labels=['LR Max Pixel Values', 'HR Max Pixel Values'])
-        plt.ylabel('Pixel Value')
-        plt.title('Boxplot of Maximum Pixel Values')
-        plt.suptitle(f'(Disregarding {amount_of_min_values_disregarded} values under -800 for min pixel value)')
-        
-        plt.subplot(1, 4, 3)
-        plt.plot(centers, hist_lr.numpy(), label='LR Pixel Value Distribution')
-        # place a bar at the point equal to the value 0 on the x-axis to indicate where the value 0 is in the distribution, since there are many pixel values under 0 in the dataset and it is important to see where they are in the distribution
-        plt.axvline(x=(0 - dataset_min_pixel_value) / (dataset_max_pixel_value - dataset_min_pixel_value), color='red', linestyle='--', label='Value 0')
-        plt.legend()
-        plt.xlabel('Normalized Pixel Value')
-        plt.ylabel('Frequency')
-        plt.title('Pixel Value Distribution For LR')
-
-        plt.subplot(1, 4, 4)
-        plt.plot(centers, hist_hr.numpy(), label='HR Pixel Value Distribution')
-        plt.axvline(x=0, color='red', linestyle='--', label='Value 0')
-        plt.legend()
-        plt.xlabel('Normalized Pixel Value')
-        plt.ylabel('Frequency')
-        plt.title('Pixel Value Distribution For HR')
-        
-        plt.tight_layout()
-        plt.show()
-        plt.close('all')
+        plot_outlier_plots(hist_lr, hist_hr, dataset_min_pixel_value, dataset_max_pixel_value, filtered_min_pixel_values_lr, filtered_min_pixel_values_hr, max_pixel_values_lr, max_pixel_values_hr, amount_of_min_values_disregarded, bins)
 
     if logger is not None:
         logger.info(f"Dataset pixel value statistics - \nMin: {round(dataset_min_pixel_value, 4)}, Max: {round(dataset_max_pixel_value, 4)}, Mean: {round(mean_pixel_value, 4)}, Std: {round(std_pixel_value, 4)}\n")
         logger.info(f"Disregarding {amount_of_min_values_disregarded} minimum pixel values under -800 for the dataset min pixel value calculation.")
 
-    return dataset_min_pixel_value, dataset_max_pixel_value, mean_pixel_value, std_pixel_value
+    return dataset_min_pixel_value, dataset_max_pixel_value, mean_pixel_value, std_pixel_value, loader, unfiltered_dataloader
 
 
+def plot_outlier_plots(hist_lr: torch.Tensor, hist_hr: torch.Tensor, dataset_min_pixel_value: float, dataset_max_pixel_value: float, filtered_min_pixel_values_lr: list, filtered_min_pixel_values_hr: list, max_pixel_values_lr: list, max_pixel_values_hr: list, amount_of_min_values_disregarded: int, bins: int):
+    bin_edges = torch.linspace(dataset_min_pixel_value, dataset_max_pixel_value, bins + 1)
+    centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
+    # plot the box plot of the max and min pixel values across the dataset, lr beside hr, in the same figure with two subplots
+    plt.figure(figsize=(18, 6))
+    plt.subplot(1, 4, 1)
+    plt.boxplot([filtered_min_pixel_values_lr, filtered_min_pixel_values_hr], labels=['LR Min Pixel Values', 'HR Min Pixel Values'])
+    plt.ylabel('Pixel Value')
+    plt.title('Boxplot of Minimum Pixel Values')
+    
+    plt.subplot(1, 4, 2)
+    plt.boxplot([max_pixel_values_lr, max_pixel_values_hr], labels=['LR Max Pixel Values', 'HR Max Pixel Values'])
+    plt.ylabel('Pixel Value')
+    plt.title('Boxplot of Maximum Pixel Values')
+    plt.suptitle(f'(Disregarding {amount_of_min_values_disregarded} values under -800 for min pixel value)')
+    
+    plt.subplot(1, 4, 3)
+    plt.plot(centers, hist_lr.numpy(), label='LR Pixel Value Distribution')
+    # place a bar at the point equal to the value 0 on the x-axis to indicate where the value 0 is in the distribution, since there are many pixel values under 0 in the dataset and it is important to see where they are in the distribution
+    plt.axvline(x=(0 - dataset_min_pixel_value) / (dataset_max_pixel_value - dataset_min_pixel_value), color='red', linestyle='--', label='Value 0')
+    plt.legend()
+    plt.xlabel('Normalized Pixel Value')
+    plt.ylabel('Frequency')
+    plt.title('Pixel Value Distribution For LR')
+
+    plt.subplot(1, 4, 4)
+    plt.plot(centers, hist_hr.numpy(), label='HR Pixel Value Distribution')
+    plt.axvline(x=0, color='red', linestyle='--', label='Value 0')
+    plt.legend()
+    plt.xlabel('Normalized Pixel Value')
+    plt.ylabel('Frequency')
+    plt.title('Pixel Value Distribution For HR')
+    
+    plt.tight_layout()
+    plt.show()
+    plt.close('all')
+        
 
 if __name__ == "__main__":
     import time

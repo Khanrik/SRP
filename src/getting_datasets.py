@@ -26,9 +26,7 @@ def getting_datasets(training_regions: list[str], evaluation_regions: list[str],
         batch_size=model_config.get("BATCH_SIZE", 16),
         cuda=torch.cuda.is_available(),
         division=DataDivision(train=0.8, val=0.1, test=0.1),
-        category="training",
-        logger=logger,
-        compute_extremals=True
+        logger=logger
     )
 
     evaluation_data = get_base_dataset(
@@ -38,8 +36,7 @@ def getting_datasets(training_regions: list[str], evaluation_regions: list[str],
         cuda=torch.cuda.is_available(),
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         category="evaluation",
-        logger=logger,
-        compute_extremals=False
+        logger=logger
     )
 
     # visualization always uses batch size of 1.
@@ -51,8 +48,7 @@ def getting_datasets(training_regions: list[str], evaluation_regions: list[str],
         cuda=torch.cuda.is_available(),
         division=DataDivision(train=0.0, val=0.0, test=1.0),
         category="visualization",
-        logger=logger,
-        compute_extremals=False
+        logger=logger
     )
     individual_visual_eval=[]
     for region in visual_eval_regions:
@@ -65,8 +61,7 @@ def getting_datasets(training_regions: list[str], evaluation_regions: list[str],
             randomize=False,
             category="visual_evaluation",
             logger=logger,
-            same_as_lr_regions={region},
-            compute_extremals=False
+            same_as_lr_regions={region}
         )
         individual_visual_eval.append(region_test_data[2])  # only test data is needed for visual evaluation
     visual_eval_data = list(chain.from_iterable(individual_visual_eval))
