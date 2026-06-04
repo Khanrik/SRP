@@ -30,11 +30,13 @@ def datafetching_and_processing(logger: logging.Logger, VisualEvaluationData: li
         Currently, the function is set up to fetch and process data for Denmark and Ethiopia, but it can be easily extended to include additional regions by adding the necessary logic for fetching and processing data for those regions, as well as updating the list of files to move in the 'move_to_selected' function.
     """
     data_dir = Path(__file__).resolve().parent.parent / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
 
     lr_target_resolution = (128, 128)
     hr_target_resolution = 10
     
+    #datafetching and processing
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True, exist_ok=True)
 
     if not (data_dir / "copernicus").exists() or not (data_dir / "dataforsyningen").exists():
         logger.info("Downloading and processing Denmark data...")
@@ -56,9 +58,21 @@ def datafetching_and_processing(logger: logging.Logger, VisualEvaluationData: li
     logger.info("Done fetching data!")
 
 
-def pipelines_creator(datasets: list, loss_functions: list, models: list, configs: list, plotter_instance: plotter, logger: logging.Logger)-> dict[str, ModelPipeline]:
+def pipelines_creator(retrain:bool,datasets:list,loss_functions:list, models:list, configs:list, plotter_instance, logger: logging.Logger)-> dict[str, ModelPipeline]:
+    """Creates and trains model pipelines for the given datasets, loss functions, models, and configurations.
+    Args:
+        retrain (bool): Whether to retrain the models or load existing checkpoints if available.
+        datasets (list): A list of datasets to be used for training and evaluation. Each dataset should be in a format compatible with the ModelPipeline class.
+        loss_functions (list): A list of loss function classes to be used for training the models. Each loss function class should be compatible with the ModelPipeline class and should accept the necessary arguments for initialization.
+        models (list): A list of model instances to be trained. Each model should be compatible with the ModelPipeline class and should be properly initialized before being passed to this function.
+        configs (list): A list of configuration dictionaries to be used for training the models. Each configuration dictionary should contain the necessary hyperparameters and settings for training the models, and should be compatible with the ModelPipeline class.
+        plotter_instance: An instance of a plotter class that will be used for plotting training metrics and results during the training process. The plotter instance should have methods that are compatible with the ModelPipeline class for plotting purposes.
+        logger (logging.Logger): Logger for logging information during pipeline creation and training.
+    Returns:
+        dict[str, ModelPipeline]: A dictionary where the keys are the names of the model checkpoints (derived from the model and configuration) and the values are the corresponding ModelPipeline instances that have been trained or loaded based on the 'retrain' parameter.
+    """
     pipeline_dict = {}
-    for i, datas in enumerate(datasets):
+    for i,datas in enumerate(datasets):
         
         datarange_for_loss=(datas[4] - datas[3])/datas[6]  # (max - min) / std for global normalization, used for SSIM data_range parameter
         losses_initialized = []
@@ -79,7 +93,7 @@ def pipelines_creator(datasets: list, loss_functions: list, models: list, config
                 for config in configs:
                     config["data"] = datas
                     pipeline = ModelPipeline(model=model, model_config=config, plotter=plotter_instance, logger=logger, criterion=criterion, downsampled_data=i==1)
-                    pipeline.train(retrain=False)
+                    pipeline.train(retrain=retrain)
                     
                     pipeline_dict[pipeline.pth_path_name] = pipeline
     return pipeline_dict
@@ -113,13 +127,14 @@ def main(logger: logging.Logger):
     )
     
     # Initializing data
-
-    training_data, evaluation_data, visualization_data, visual_eval_data = getting_datasets(training_regions=["jutland", "funen"], evaluation_regions=["bornholm"], visualization_regions=["bornholm"], visual_eval_regions=["ethiopia"],model_config=model_config, logger=logger)
+    # Note that training regions should be the regions used for training the models,
+    # even if they are already trained
+    training_data, evaluation_data, visualization_data, visual_eval_data = getting_datasets(training_regions=["jutland", "funen"], evaluation_regions=["bornholm", "funen", "jutland", "zealand"], visualization_regions=["bornholm"], visual_eval_regions=["ethiopia"],model_config=model_config, logger=logger)
 
     downsampled_data = dataset_to_downsampled_dataset(training_data, downsample_factor=3, logger=logger)
 
-    # model_config_SGD = copy.deepcopy(model_config)
-    # model_config_SGD["OPTIMIZER"] = optim.SGD
+    model_config_SGD = copy.deepcopy(model_config)
+    model_config_SGD["OPTIMIZER"] = optim.SGD
     model_config_RMS = copy.deepcopy(model_config)
     model_config_RMS["OPTIMIZER"] = optim.RMSprop
 
@@ -130,6 +145,7 @@ def main(logger: logging.Logger):
     # all available losses are:
     # SmoothLoss, SmoothGradLoss, SSIMLoss, MSESSIMLoss, MAESSIMLoss, MSSSIMLoss
     pipeline_dict = pipelines_creator(
+        retrain=False,
         datasets=[training_data, downsampled_data],
         loss_functions=[SmoothLoss, SmoothGradLoss, SSIMLoss, MSESSIMLoss, MAESSIMLoss, MSSSIMLoss],
         models=[unet_model, LoGSRN_model],
