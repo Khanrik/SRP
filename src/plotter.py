@@ -425,7 +425,7 @@ class plotter:
             gridspec_kw={"height_ratios": [3, 1]},
             squeeze=False,
         )
-        fig.suptitle(f"Metric Maps and Boxplots for Pipeline: {pipeline_name}", fontsize=14, pad=12)
+        fig.suptitle(f"Metric Maps and Boxplots for Pipeline: {pipeline_name}", fontsize=14, y=0.995)
 
         pipeline_gdf = self.gdf[self.gdf["name"] == pipeline_name]
 
