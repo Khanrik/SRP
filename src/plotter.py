@@ -422,11 +422,12 @@ class plotter:
         logger.info("\n" + self.gdf.to_string())
         logger.info("-" * 30 + "\n")
 
-        group_cols = ["model", "criterion", "optimizer"]
+        group_cols = ["model", "criterion", "optimizer", "downsampled HR input"]
         group_display_names = {
             "model": "Architecture",
             "criterion": "@LF",
             "optimizer": "Optimizer",
+            "downsampled HR input": "Downsampled @HR Input",
         }
         metric_cols = [name for name in metrics.keys()]
         summary = (
@@ -446,14 +447,29 @@ class plotter:
         typst_lines.append("      " + ", ".join(f"[{group_display_names.get(header, header)}]" for header in headers) + ",")
         typst_lines.append("")
 
-        for _, row in summary.iterrows():
+        summary_records = summary.to_dict(orient="records")
+        row_count = len(summary_records)
+        for row_idx, row in enumerate(summary_records):
             cells = []
             for col in headers:
                 value = row[col]
                 if isinstance(value, float):
                     cells.append(f"[{value:.4f}]")
-                else:
-                    cells.append(f"[{value}]")
+                    continue
+                if isinstance(value, bool):
+                    cells.append(f"[{'Yes' if bool(value) else 'No'}]")
+                    continue
+                
+                # Merge repeated categorical values vertically by emitting rowspan only at run start.
+                if row_idx > 0 and summary_records[row_idx - 1][col] == value:
+                    continue
+
+                span = 1
+                next_idx = row_idx + 1
+                while next_idx < row_count and summary_records[next_idx][col] == value:
+                    span += 1
+                    next_idx += 1
+                cells.append(f"table.cell(rowspan: {span})[{value}]")
             typst_lines.append("      " + ", ".join(cells) + ",")
 
         typst_lines.append("    ),")
