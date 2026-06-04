@@ -146,6 +146,7 @@ def main(logger: logging.Logger):
         [evaluation_data[2], visualization_data[2]],
         model_config["DEVICE"],
         metrics,
+        logger=logger,
         min_val=training_data[3],
         max_val=training_data[4],
         mean=training_data[5],
