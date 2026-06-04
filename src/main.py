@@ -110,7 +110,7 @@ def main(logger: logging.Logger):
     metrics = {"MAE": MAE, "MSE": MSE, "RMSE": RMSE, "PSNR": PSNR, "SSIM": SSIM}
     model_config = {
         "LEARNING_RATE": 5e-5,
-        "DYNAMIC_LR": True,
+        "DYNAMIC_LR": False,
         "BATCH_SIZE": 16,
         "EPOCHS": 1000000,
         "PROFILE_LAYERS_ONCE": False,
@@ -137,6 +137,7 @@ def main(logger: logging.Logger):
 
     model_config_SGD = copy.deepcopy(model_config)
     model_config_SGD["OPTIMIZER"] = optim.SGD
+    model_config_SGD["DYNAMIC_LR"] = True
     model_config_RMS = copy.deepcopy(model_config)
     model_config_RMS["OPTIMIZER"] = optim.RMSprop
 
