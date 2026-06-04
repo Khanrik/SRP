@@ -179,7 +179,7 @@ class plotter:
             plt.show()
         plt.close('all')
 
-    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list: list, metrics: dict, min_val: float, max_val: float, mean_val: float, std_val: float, crs: str="EPSG:25832"):
+    def get_dataframe(self, loaders: list[DataLoader], model_pipeline_list: list, metrics: dict, min_val: float, max_val: float, mean_val: float, std_val: float, crs: str="EPSG:25832", include_bilinear: bool=True):
         """Generates a GeoDataFrame containing the evaluation metrics for each sample in the dataset, along with their corresponding geometries.
         Args:
             loaders (list[DataLoader]): A list of DataLoaders containing the datasets to be evaluated.
@@ -190,46 +190,92 @@ class plotter:
             mean_val (float): The mean pixel value for normalization.
             std_val (float): The standard deviation of pixel values for normalization.
             crs (str): The coordinate reference system for the GeoDataFrame.
+            include_bilinear (bool): Whether to include a bilinear interpolation baseline in the resulting metrics table.
         """
         rows = []
         for loader in loaders:
             dataset = loader.dataset
+            bbox_cache = {}
             for pipeline in model_pipeline_list:
                 pipeline.model.eval()
-                with torch.no_grad():
-                    for (LR, HR), dataset_indices in tqdm(zip(loader, loader.batch_sampler), desc=f"Evaluating {pipeline.pth_path_name}", leave=False, total=len(loader)):
-                        LR = LR.float().to(pipeline.device)
-                        HR = HR.float().to(pipeline.device)
-                        normalized_LR, _ = normalize_targets(targets=[LR, HR], mean=mean_val, std=std_val)
+
+            for (LR, HR), dataset_indices in tqdm(zip(loader, loader.batch_sampler), desc="Evaluating pipelines and baselines", leave=False, total=len(loader)):
+                LR_cpu = LR.float()
+                HR_cpu = HR.float()
+                batch_size = HR_cpu.shape[0]
+
+                shared_rows = []
+                for batch in range(batch_size):
+                    dataset_idx = int(dataset_indices[batch])
+                    if dataset_idx not in bbox_cache:
+                        bbox_cache[dataset_idx] = dataset.get_bbox(dataset_idx)
+                    bbox = bbox_cache[dataset_idx]
+                    shared_rows.append(
+                        {
+                            "category": dataset.category,
+                            "dataset_idx": dataset_idx,
+                            "geometry": box(
+                                bbox.left,
+                                bbox.bottom,
+                                bbox.right,
+                                bbox.top,
+                            ),
+                            "lr_min": float(torch.min(LR_cpu[batch:batch+1]).detach().cpu().item()),
+                            "lr_max": float(torch.max(LR_cpu[batch:batch+1]).detach().cpu().item()),
+                            "hr_min": float(torch.min(HR_cpu[batch:batch+1]).detach().cpu().item()),
+                            "hr_max": float(torch.max(HR_cpu[batch:batch+1]).detach().cpu().item()),
+                        }
+                    )
+
+                if include_bilinear:
+                    bilinear = torch.nn.functional.interpolate(
+                        LR_cpu,
+                        size=HR_cpu.shape[-2:],
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                    for batch in range(batch_size):
+                        row = shared_rows[batch].copy()
+                        row.update(
+                            {
+                                "name": "bilinear",
+                                "model": "baseline",
+                                "criterion": "interpolation",
+                                "optimizer": "N/A",
+                                "downsampled HR input": False,
+                            }
+                        )
+
+                        bilinear_sample = bilinear[batch:batch+1]
+                        hr_sample = HR_cpu[batch:batch+1]
+                        results = metric_items(bilinear_sample, hr_sample, metrics, min_val, max_val)
+                        for name, value in results:
+                            row[name] = float(value)
+
+                        rows.append(row)
+
+                for pipeline in model_pipeline_list:
+                    with torch.no_grad():
+                        LR_device = LR_cpu.to(pipeline.device)
+                        HR_device = HR_cpu.to(pipeline.device)
+                        normalized_LR = normalize_targets(targets=LR_device, mean=mean_val, std=std_val)
                         pred = pipeline.model(normalized_LR)
-                        batch_size = pred.shape[0]
                         pred = denormalize_target(pred, mean=mean_val, std=std_val)
 
-                        for i in range(batch_size):
-                            dataset_idx = int(dataset_indices[i])
-                            bbox = dataset.get_bbox(dataset_idx)
-                            row = {
-                                "name": pipeline.pth_path_name,
-                                "model": pipeline.model.__class__.__name__,
-                                "criterion": pipeline.criterion.__class__.__name__,
-                                "optimizer": pipeline.optimizer.__class__.__name__,
-                                "downsampled HR input": pipeline.downsampled_data,
-                                "category": dataset.category,
-                                "dataset_idx": dataset_idx,
-                                "geometry": box(
-                                    bbox.left,
-                                    bbox.bottom,
-                                    bbox.right,
-                                    bbox.top,
-                                ),
-                                "lr_min": float(torch.min(LR[i:i+1]).detach().cpu().item()),
-                                "lr_max": float(torch.max(LR[i:i+1]).detach().cpu().item()),
-                                "hr_min": float(torch.min(HR[i:i+1]).detach().cpu().item()),
-                                "hr_max": float(torch.max(HR[i:i+1]).detach().cpu().item()),
-                            }
+                        for batch in range(batch_size):
+                            row = shared_rows[batch].copy()
+                            row.update(
+                                {
+                                    "name": pipeline.pth_path_name,
+                                    "model": pipeline.model.__class__.__name__,
+                                    "criterion": pipeline.criterion.__class__.__name__,
+                                    "optimizer": pipeline.optimizer.__class__.__name__,
+                                    "downsampled HR input": pipeline.downsampled_data,
+                                }
+                            )
 
-                            pred_sample = pred[i:i+1]
-                            hr_sample = HR[i:i+1]
+                            pred_sample = pred[batch:batch+1]
+                            hr_sample = HR_device[batch:batch+1]
                             results = metric_items(pred_sample, hr_sample, metrics, min_val, max_val)
                             for name, value in results:
                                 row[name] = float(value)
@@ -320,7 +366,7 @@ class plotter:
         average_scores = [_average_score(scores) for scores in pipeline_scores]
         best_pipeline = pipeline_labels[int(np.argmax(average_scores))]
 
-        fig, ax = plt.subplots(figsize=(max(10, 2.5 * len(pipeline_labels)), 6))
+        fig, ax = plt.subplots(figsize=(max(10, 3.6 * len(pipeline_labels)), 6))
         bp = ax.boxplot(pipeline_scores, labels=pipeline_labels, vert=True, patch_artist=True)
         ax.set_title(f"{metric_name} Distribution by Pipeline. \n Evaluated best: {best_pipeline}", fontsize=14, pad=12)
         ax.set_ylabel(metric_name)
@@ -379,6 +425,7 @@ class plotter:
             gridspec_kw={"height_ratios": [3, 1]},
             squeeze=False,
         )
+        fig.suptitle(f"Metric Maps and Boxplots for Pipeline: {pipeline_name}", fontsize=14, pad=12)
 
         pipeline_gdf = self.gdf[self.gdf["name"] == pipeline_name]
 

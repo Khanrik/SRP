@@ -231,9 +231,9 @@ def get_base_dataset(lr_data_dir_list: list[Path],
     val_dataset = DatasetInterface(all_pairs[train_end:val_end], category=category or "validation") if val_count != 0 else None
     test_dataset = DatasetInterface(all_pairs[val_end:], category=category or "test") if test_count != 0 else None    
     
-    train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda, shuffle_bool=randomize) if train_count != 0 else None
-    val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, shuffle_bool=randomize) if val_count != 0 else None
-    test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, shuffle_bool=randomize) if test_count != 0 else None
+    train_dataloader = prepare_dataloader(train_dataset, batch_size, cuda, num_workers=0, shuffle_bool=randomize) if train_count != 0 else None
+    val_dataloader = prepare_dataloader(val_dataset, batch_size, cuda, num_workers=0, shuffle_bool=randomize) if val_count != 0 else None
+    test_dataloader = prepare_dataloader(test_dataset, batch_size, cuda, num_workers=0, shuffle_bool=randomize) if test_count != 0 else None
 
     if train_dataloader is not None:
         min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, train_dataloader, _ = compute_extremal_pixel_value(train_dataloader, include_plot=include_plot, logger=logger)

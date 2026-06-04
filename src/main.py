@@ -17,6 +17,7 @@ from main_data_fetcher import get_denmark_data, get_ethiopia_data, move_to_selec
 from visualiser_no_GT import visualiser_no_GT
 from getting_datasets import getting_datasets
 from inspect import signature
+from unet_residual import UNetResidual
 
 def datafetching_and_processing(logger: logging.Logger, VisualEvaluationData: list[str] = ["ethiopia"]):
     """
@@ -129,7 +130,8 @@ def main(logger: logging.Logger):
     # Initializing data
     # Note that training regions should be the regions used for training the models,
     # even if they are already trained
-    training_data, evaluation_data, visualization_data, visual_eval_data = getting_datasets(training_regions=["jutland", "funen"], evaluation_regions=["bornholm", "funen", "jutland", "zealand"], visualization_regions=["bornholm"], visual_eval_regions=["ethiopia"],model_config=model_config, logger=logger)
+    training_data, evaluation_data, visualization_data, visual_eval_data_for_no_GT =\
+          getting_datasets(training_regions=["jutland", "funen"], evaluation_regions=["bornholm", "funen", "jutland", "zealand"], visualization_regions=["bornholm", "funen", "jutland", "zealand"], visual_eval_regions=["ethiopia"],model_config=model_config, logger=logger)
 
     downsampled_data = dataset_to_downsampled_dataset(training_data, downsample_factor=3, logger=logger)
 
@@ -140,6 +142,7 @@ def main(logger: logging.Logger):
 
     # Creating models
     unet_model = UNet(in_channels=1, num_classes=1).to(model_config["DEVICE"])
+    unet_residual_model = UNetResidual(in_channels=1, num_classes=1).to(model_config["DEVICE"])
     LoGSRN_model = LoGSRN(in_channels=1, num_classes=1).to(model_config["DEVICE"])
 
     # all available losses are:
@@ -148,7 +151,7 @@ def main(logger: logging.Logger):
         retrain=False,
         datasets=[training_data, downsampled_data],
         loss_functions=[SmoothLoss, SmoothGradLoss, SSIMLoss, MSESSIMLoss, MAESSIMLoss, MSSSIMLoss],
-        models=[unet_model, LoGSRN_model],
+        models=[unet_model, LoGSRN_model, unet_residual_model],
         configs=[model_config, model_config_RMS],
         plotter_instance=plotter_instance,
         logger=logger
@@ -176,7 +179,7 @@ def main(logger: logging.Logger):
     visualiser_no_GT(
         list(pipeline_dict.values()),
         plotter_instance,
-        visual_eval_data,  # only test data is needed for visualization
+        visual_eval_data_for_no_GT,  # only test data is needed for visualization
         model_config["DEVICE"],
     )
 
