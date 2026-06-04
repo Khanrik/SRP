@@ -357,7 +357,9 @@ class plotter:
         pipeline_labels = self.gdf["name"].unique().tolist()
         pipeline_scores = []
         for pipeline_name in pipeline_labels:
-            pipeline_scores.append(self.gdf[self.gdf["name"] == pipeline_name][metric_name].tolist())
+            # Find best model excluding bilinear baseline
+            if pipeline_name != "bilinear":
+                pipeline_scores.append(self.gdf[self.gdf["name"] == pipeline_name][metric_name].tolist())
 
         def _average_score(values: list[float]) -> float:
             finite_values = [value for value in values if np.isfinite(value)]
