@@ -198,8 +198,8 @@ class plotter:
                 pipeline.model.eval()
                 with torch.no_grad():
                     for (LR, HR), dataset_indices in tqdm(zip(loader, loader.batch_sampler), desc=f"Evaluating {pipeline.pth_path_name}", leave=False, total=len(loader)):
-                        LR = LR.float().to(self.device)
-                        HR = HR.float().to(self.device)
+                        LR = LR.float().to(pipeline.device)
+                        HR = HR.float().to(pipeline.device)
                         normalized_LR, _ = normalize_targets(targets=[LR, HR], mean=mean_val, std=std_val)
                         pred = pipeline.model(normalized_LR)
                         batch_size = pred.shape[0]
