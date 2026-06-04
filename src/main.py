@@ -153,7 +153,7 @@ def main(logger: logging.Logger):
         std=training_data[6],
         boxplots=True,
         box_metric='SSIM',
-        include_maps=False,
+        include_maps=True,
         include_constant_maps=False # only worth running once to get the map saved
     )
 
