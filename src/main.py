@@ -151,7 +151,7 @@ def main(logger: logging.Logger):
     pipeline_dict = pipelines_creator(
         retrain=False,
         datasets=[training_data, downsampled_data],
-        loss_functions=[SmoothLoss, SmoothGradLoss, SSIMLoss, MSESSIMLoss, MAESSIMLoss, MSSSIMLoss],
+        loss_functions=[SmoothLoss, SmoothGradLoss, SSIMLoss, MAESSIMLoss, MSSSIMLoss],
         models=[unet_model, LoGSRN_model, unet_residual_model],
         configs=[model_config, model_config_RMS],
         plotter_instance=plotter_instance,
