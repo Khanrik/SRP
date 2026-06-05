@@ -466,12 +466,7 @@ class plotter:
             logger (logging.Logger): A logging.Logger instance for logging messages.
             metrics (dict): A dictionary of metric names and their corresponding values to be included in the table.
         """
-        logger.info("Logging typst table for geopandas dataframe. Entirety of dataframe is:")
-        logger.info("-" * 30)
-        logger.info("\n" + self.gdf.to_string())
-        logger.info("-" * 30 + "\n")
-
-        group_cols = ["model", "criterion", "optimizer", "downsampled HR input"]
+        group_cols = ["downsampled HR input", "model", "criterion", "optimizer"]
         group_display_names = {
             "model": "Architecture",
             "criterion": "@LF",
@@ -505,9 +500,6 @@ class plotter:
                 if isinstance(value, float):
                     cells.append(f"[{value:.4f}]")
                     continue
-                if isinstance(value, bool):
-                    cells.append(f"[{'Yes' if bool(value) else 'No'}]")
-                    continue
                 
                 # Merge repeated categorical values vertically by emitting rowspan only at run start.
                 if row_idx > 0 and summary_records[row_idx - 1][col] == value:
@@ -518,6 +510,9 @@ class plotter:
                 while next_idx < row_count and summary_records[next_idx][col] == value:
                     span += 1
                     next_idx += 1
+
+                if isinstance(value, bool):
+                    value = "Yes" if value else "No"
                 cells.append(f"table.cell(rowspan: {span})[{value}]")
             typst_lines.append("      " + ", ".join(cells) + ",")
 

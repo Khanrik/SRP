@@ -32,9 +32,10 @@ def getting_datasets(training_regions: list[str], evaluation_regions: list[str],
     evaluation_data = get_base_dataset(
         lr_data_dir_list=[data_root / "copernicus" / region for region in evaluation_regions],
         hr_data_dir_list=[data_root / "dataforsyningen" / region for region in evaluation_regions],
-        batch_size=model_config.get("BATCH_SIZE", 16),
+        batch_size=1,
         cuda=torch.cuda.is_available(),
         division=DataDivision(train=0.0, val=0.0, test=1.0),
+        randomize=False,
         category="evaluation",
         logger=logger
     )
@@ -47,6 +48,7 @@ def getting_datasets(training_regions: list[str], evaluation_regions: list[str],
         batch_size=1,
         cuda=torch.cuda.is_available(),
         division=DataDivision(train=0.0, val=0.0, test=1.0),
+        randomize=False,
         category="visualization",
         logger=logger
     )
