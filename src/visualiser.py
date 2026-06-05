@@ -15,7 +15,8 @@ def visualiser(ModelPipelineList: list,
                mean: float, 
                std: float, 
                min_val: float, 
-               max_val: float, 
+               max_val: float,
+               include_table: bool = False,
                include_maps: bool = False, 
                include_constant_maps: bool = False, 
                boxplots: bool = True, 
@@ -33,6 +34,7 @@ def visualiser(ModelPipelineList: list,
         min_val (float): The minimum possible value of the images.
         max_val (float): The maximum possible value of the images.
         logger (Logger): A logger instance for logging the typst table of metrics.
+        include_table (bool, optional): A boolean indicating whether to include a typst table of metrics in the visualization. Default is False.
         include_maps (bool, optional): A boolean indicating whether to include the data split map in the visualization. Default is False.
         include_constant_maps (bool, optional): A boolean indicating whether to include constant maps in the visualization. Default is False.
         boxplots (bool, optional): A boolean indicating whether to include boxplots in the visualization. Default is True.
@@ -106,16 +108,20 @@ def visualiser(ModelPipelineList: list,
         test_result.extend([image_result])
     plotter_instance.plot_horizontal_results(test_result, interpolation="nearest")
     
-    if boxplots or include_maps:
+    if boxplots or include_maps or include_table:
         plotter_instance.get_dataframe(denmark_data, ModelPipelineList, metrics, min_val=min_val, max_val=max_val, mean_val=mean, std_val=std)
+
+    if boxplots:
         best_pipeline = plotter_instance.plot_boxplots(metric_name=box_metric) 
 
     if include_maps:
         plotter_instance.plot_metric_maps(best_pipeline, metrics)
+        
+        if include_constant_maps:
+            plotter_instance.plot_datasplit_map()
+            plotter_instance.plot_extrema_map()
+    
+    if include_table:
         plotter_instance.log_typst_table(logger, metrics)
-
-    if include_constant_maps:
-        plotter_instance.plot_datasplit_map()
-        plotter_instance.plot_extrema_map()
     
     return

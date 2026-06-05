@@ -134,6 +134,8 @@ def main(logger: logging.Logger):
           getting_datasets(training_regions=["jutland", "funen"], evaluation_regions=["bornholm", "funen", "jutland", "zealand"], visualization_regions=["bornholm", "funen", "jutland", "zealand"], visual_eval_regions=["ethiopia"],model_config=model_config, logger=logger)
 
     downsampled_data = dataset_to_downsampled_dataset(training_data, downsample_factor=3, logger=logger)
+    #downsampled_evaluation_data = dataset_to_downsampled_dataset(evaluation_data, downsample_factor=3, logger=logger)
+    #downsampled_visualization_data = dataset_to_downsampled_dataset(visualization_data, downsample_factor=3, logger=logger)
 
     model_config_SGD = copy.deepcopy(model_config)
     model_config_SGD["OPTIMIZER"] = optim.SGD
@@ -164,6 +166,7 @@ def main(logger: logging.Logger):
         plotter_instance,
         visualization_data[2],
         [evaluation_data[2], visualization_data[2]],
+        #[downsampled_evaluation_data[2], downsampled_visualization_data[2]],
         model_config["DEVICE"],
         metrics,
         logger=logger,
@@ -173,6 +176,7 @@ def main(logger: logging.Logger):
         std=training_data[6],
         boxplots=True,
         box_metric='SSIM',
+        include_table=True,
         include_maps=True,
         include_constant_maps=False # only worth running once to get the map saved
     )
