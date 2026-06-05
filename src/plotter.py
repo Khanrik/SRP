@@ -460,30 +460,8 @@ class plotter:
             plt.show()
         plt.close('all')
 
-    def log_typst_table(self, logger, metrics: dict):
-        """Logs a typst-formatted table containing the average metric values for each model pipeline configuration, grouped by model architecture, loss function, and optimizer.
-        Args:
-            logger (logging.Logger): A logging.Logger instance for logging messages.
-            metrics (dict): A dictionary of metric names and their corresponding values to be included in the table.
-        """
-        group_cols = ["downsampled HR input", "model", "criterion", "optimizer"]
-        group_display_names = {
-            "model": "Architecture",
-            "criterion": "@LF",
-            "optimizer": "Optimizer",
-            "downsampled HR input": "Downsampled @HR Input",
-        }
-        metric_cols = [name for name in metrics.keys()]
-        summary = (
-            self.gdf[group_cols + metric_cols]
-            .groupby(group_cols, dropna=False)
-            .mean()
-            .reset_index()
-        )
-        headers = group_cols + metric_cols
-
-        typst_lines = []
-        typst_lines.append("#onecol(")
+    def _create_typst_table(self, summary, headers, group_display_names, caption):
+        typst_lines = ["#onecol("]
         typst_lines.append("  figure(")
         typst_lines.append("    table(")
         typst_lines.append(f"      columns: {len(headers)},")
@@ -500,8 +478,7 @@ class plotter:
                 if isinstance(value, float):
                     cells.append(f"[{value:.4f}]")
                     continue
-                
-                # Merge repeated categorical values vertically by emitting rowspan only at run start.
+
                 if row_idx > 0 and summary_records[row_idx - 1][col] == value:
                     continue
 
@@ -517,8 +494,37 @@ class plotter:
             typst_lines.append("      " + ", ".join(cells) + ",")
 
         typst_lines.append("    ),")
-        typst_lines.append("    caption: [All model configurations and their average metric values when tested on the entirety of Denmark]")
+        typst_lines.append(f"    caption: [{caption}]")
         typst_lines.append("  )")
         typst_lines.append(")")
+        return typst_lines
 
-        logger.info("\n".join(typst_lines))
+    def log_typst_table(self, logger, metrics: dict):
+        """Logs a typst-formatted table containing the average metric values for each model pipeline configuration, grouped by model architecture, loss function, and optimizer.
+        Args:
+            logger (logging.Logger): A logging.Logger instance for logging messages.
+            metrics (dict): A dictionary of metric names and their corresponding values to be included in the table.
+        """
+        group_cols = ["model", "criterion", "optimizer"]
+        group_display_names = {
+            "model": "Architecture",
+            "criterion": "@LF",
+            "optimizer": "Optimizer",
+        }
+        metric_cols = [name for name in metrics.keys()]
+        headers = group_cols + metric_cols
+
+        typst_lines = []
+        for downsampled_value, caption in [(False, "All model configurations trained on Copernicus @LR input and evaluated on the entirety of Denmark"),
+                                           (True, "All model configurations trained on downsampled @HR input and evaluated on the entirety of Denmark")]:
+            summary = (
+                self.gdf[self.gdf["downsampled HR input"] == downsampled_value][group_cols + metric_cols]
+                .groupby(group_cols, dropna=False)
+                .mean()
+                .reset_index()
+            )
+            typst_lines.extend(
+                self._create_typst_table(summary, headers, group_display_names, caption)
+            )
+
+        logger.info("\n\n" + "\n".join(typst_lines) + "\n\n")
