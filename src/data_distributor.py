@@ -110,8 +110,11 @@ class DatasetInterface(Dataset):
 
     def __getitem__(self, idx: int):
         hr_transform = self.lr_transform if self.same_as_lr_flags[idx] else self.hr_transform
-        return  self.lr_transform(self.lr[idx]).float(), \
-            hr_transform(self.hr[idx]).float()
+        return (
+            self.lr_transform(self.lr[idx]).float(),
+            hr_transform(self.hr[idx]).float(),
+            idx
+        )
     
     def delete_item(self, idx: int):
         del self.lr[idx]
@@ -317,40 +320,42 @@ def compute_extremal_pixel_value(loader: DataLoader,
     dataset_min_pixel_value = float('inf')
     dataset_max_pixel_value = float('-inf')
     amount_of_min_values_disregarded = 0
-    unfiltered_dataloader = copy.deepcopy(loader)
-
-    for i, (lr, hr) in tqdm(enumerate(unfiltered_dataloader), desc="Computing test dataset pixel value statistics", total=len(unfiltered_dataloader)):
-        lr_min = lr.min().item()
-        hr_min = hr.min().item()
-        lr_max = lr.max().item()
-        hr_max = hr.max().item()
-
-        max_pixel_values_lr.append(lr_max)
-        max_pixel_values_hr.append(hr_max)
-        
-        hist_lr += torch.histc(lr.flatten(), bins=bins, min=lr_min, max=lr_max)
-        hist_hr += torch.histc(hr.flatten(), bins=bins, min=hr_min, max=hr_max)
-
-        if lr_min < threshold or hr_min < threshold:
-            loader.dataset.delete_item(i)
-            if lr_min < threshold:
-                filtered_min_pixel_values_lr.append(lr_min)
-            else:
-                amount_of_min_values_disregarded += 1
-            if hr_min < threshold:
-                filtered_min_pixel_values_hr.append(hr_min)
-            else:
-                amount_of_min_values_disregarded += 1
-            continue
-
-        # Update mean and std
-        total_pixels += lr.numel() + hr.numel()
-        mean_pixel_value += lr.sum().item() + hr.sum().item()
-        std_pixel_value += (lr.std().item() ** 2 * lr.numel() + hr.std().item() ** 2 * hr.numel())
-        
-        dataset_min_pixel_value = min(dataset_min_pixel_value, lr_min, hr_min)
-        dataset_max_pixel_value = max(dataset_max_pixel_value, lr_max, hr_max)
+    filtered_dataloader = copy.deepcopy(loader)
+    bad_value_indices = []
     
+    for lr, hr, indices in tqdm(loader, desc="Computing test dataset pixel value statistics", total=len(loader)):
+        for batch, dataset_idx in enumerate(indices.tolist()):
+            sample_lr = lr[batch]
+            sample_hr = hr[batch]
+            lr_min = sample_lr.min().item()
+            hr_min = sample_hr.min().item()
+            lr_max = sample_lr.max().item()
+            hr_max = sample_hr.max().item()
+
+            max_pixel_values_lr.append(lr_max)
+            max_pixel_values_hr.append(hr_max)
+
+            if lr_min < threshold or hr_min < threshold:
+                amount_of_min_values_disregarded += 1
+                bad_value_indices.append(dataset_idx)
+                continue
+            
+            filtered_min_pixel_values_lr.append(lr_min)
+            filtered_min_pixel_values_hr.append(hr_min)
+            hist_lr += torch.histc(sample_lr.flatten(), bins=bins, min=lr_min, max=lr_max)
+            hist_hr += torch.histc(sample_hr.flatten(), bins=bins, min=hr_min, max=hr_max)
+
+            # Update mean and std
+            total_pixels += sample_lr.numel() + sample_hr.numel()
+            mean_pixel_value += sample_lr.sum().item() + sample_hr.sum().item()
+            std_pixel_value += (sample_lr.std().item() ** 2 * sample_lr.numel() + sample_hr.std().item() ** 2 * sample_hr.numel())
+
+            dataset_min_pixel_value = min(dataset_min_pixel_value, lr_min, hr_min)
+            dataset_max_pixel_value = max(dataset_max_pixel_value, lr_max, hr_max)
+    
+    for idx in sorted(bad_value_indices, reverse=True):
+        filtered_dataloader.dataset.delete_item(idx)
+
     mean_pixel_value /= total_pixels
     std_pixel_value = (std_pixel_value / total_pixels) ** 0.5
     
@@ -361,7 +366,7 @@ def compute_extremal_pixel_value(loader: DataLoader,
         logger.info(f"Dataset pixel value statistics - \nMin: {round(dataset_min_pixel_value, 4)}, Max: {round(dataset_max_pixel_value, 4)}, Mean: {round(mean_pixel_value, 4)}, Std: {round(std_pixel_value, 4)}\n")
         logger.info(f"Disregarding {amount_of_min_values_disregarded} minimum pixel values under -800 for the dataset min pixel value calculation.")
 
-    return dataset_min_pixel_value, dataset_max_pixel_value, mean_pixel_value, std_pixel_value, loader, unfiltered_dataloader
+    return dataset_min_pixel_value, dataset_max_pixel_value, mean_pixel_value, std_pixel_value, filtered_dataloader, loader
 
 
 def plot_outlier_plots(hist_lr: torch.Tensor, hist_hr: torch.Tensor, dataset_min_pixel_value: float, dataset_max_pixel_value: float, filtered_min_pixel_values_lr: list, filtered_min_pixel_values_hr: list, max_pixel_values_lr: list, max_pixel_values_hr: list, amount_of_min_values_disregarded: int, bins: int):

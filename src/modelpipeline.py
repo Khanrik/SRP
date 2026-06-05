@@ -112,7 +112,7 @@ class ModelPipeline:
             running[metric_name] = []
         running["Loss"] = []
 
-        for idx, (LR, HR) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.pth_path_name}")):
+        for idx, (LR, HR, _) in enumerate(tqdm(dataloader, position=0, leave=True, desc=f"Epoch {epoch + 1} {training_state} - {self.pth_path_name}")):
             # creating LR and HR tensors for the batch and moving them to the correct device.
             LR = LR.float().to(self.device)
             HR = HR.float().to(self.device)

@@ -50,7 +50,7 @@ def visualiser(ModelPipelineList: list,
 
 
     test_result=[]
-    for LR, HR in tqdm(selected_test_images, position=0, leave=True):
+    for LR, HR, _ in tqdm(selected_test_images, position=0, leave=True):
         image_result = []
         # creating LR and HR tensors for the batch and moving them to the correct device.
         LR = LR.float().to(device)

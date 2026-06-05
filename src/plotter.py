@@ -199,14 +199,13 @@ class plotter:
             for pipeline in model_pipeline_list:
                 pipeline.model.eval()
 
-            for (LR, HR), dataset_indices in tqdm(zip(loader, loader.batch_sampler), desc="Evaluating pipelines and baselines", leave=False, total=len(loader)):
+            for LR, HR, dataset_indices in tqdm(loader, desc="Evaluating pipelines and baselines", leave=False, total=len(loader)):
                 LR_cpu = LR.float()
                 HR_cpu = HR.float()
                 batch_size = HR_cpu.shape[0]
 
                 shared_rows = []
-                for batch in range(batch_size):
-                    dataset_idx = int(dataset_indices[batch])
+                for batch, dataset_idx in enumerate(dataset_indices):
                     if dataset_idx not in bbox_cache:
                         bbox_cache[dataset_idx] = dataset.get_bbox(dataset_idx)
                     bbox = bbox_cache[dataset_idx]
@@ -220,10 +219,10 @@ class plotter:
                                 bbox.right,
                                 bbox.top,
                             ),
-                            "lr_min": float(torch.min(LR_cpu[batch:batch+1]).detach().cpu().item()),
-                            "lr_max": float(torch.max(LR_cpu[batch:batch+1]).detach().cpu().item()),
-                            "hr_min": float(torch.min(HR_cpu[batch:batch+1]).detach().cpu().item()),
-                            "hr_max": float(torch.max(HR_cpu[batch:batch+1]).detach().cpu().item()),
+                            "lr_min": LR_cpu[batch].min().item(),
+                            "lr_max": LR_cpu[batch].max().item(),
+                            "hr_min": HR_cpu[batch].min().item(),
+                            "hr_max": HR_cpu[batch].max().item(),
                         }
                     )
 
@@ -367,6 +366,9 @@ class plotter:
         
         average_scores = [_average_score(scores) for scores in pipeline_scores]
         best_pipeline = pipeline_labels[int(np.argmax(average_scores))]
+
+        # re-introduce bilinear for boxplots
+        pipeline_scores.append(self.gdf[self.gdf["name"] == "bilinear"][metric_name].tolist())
 
         fig, ax = plt.subplots(figsize=(max(10, 3.6 * len(pipeline_labels)), 6))
         bp = ax.boxplot(pipeline_scores, labels=pipeline_labels, vert=True, patch_artist=True)
