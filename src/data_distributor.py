@@ -280,12 +280,12 @@ def loader_to_downsampled_loader(loader: DataLoader, downsample_factor: int = 3,
 def dataset_to_downsampled_dataset(dataset: tuple[DataLoader, DataLoader, DataLoader, float, float, float, float], downsample_factor: int = 3, logger: logging.Logger = None) -> tuple[DataLoader, DataLoader, DataLoader, float, float, float, float]:
     """Returns a dataset where the LR images are replaced by the HR images downsampled by `downsample_factor` using the bicubic method"""
     train_loader, val_loader, test_loader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value = dataset
-    downsampled_train_loader = loader_to_downsampled_loader(train_loader, downsample_factor)
-    downsampled_val_loader = loader_to_downsampled_loader(val_loader, downsample_factor)
-    downsampled_test_loader = loader_to_downsampled_loader(test_loader, downsample_factor)
-    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, downsampled_train_loader, _ = compute_extremal_pixel_value(downsampled_train_loader, include_plot=False, logger=logger)
-    _, _, _, _, downsampled_val_loader, _ = compute_extremal_pixel_value(downsampled_val_loader, include_plot=False, logger=logger)
-    _, _, _, _, downsampled_test_loader, _ = compute_extremal_pixel_value(downsampled_test_loader, include_plot=False, logger=logger)
+    downsampled_train_loader = loader_to_downsampled_loader(train_loader, downsample_factor) if train_loader is not None else None
+    downsampled_val_loader = loader_to_downsampled_loader(val_loader, downsample_factor) if val_loader is not None else None
+    downsampled_test_loader = loader_to_downsampled_loader(test_loader, downsample_factor) if test_loader is not None else None
+    min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, downsampled_train_loader, _ = compute_extremal_pixel_value(downsampled_train_loader, include_plot=False, logger=logger) if downsampled_train_loader is not None else (min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value, None, None)
+    _, _, _, _, downsampled_val_loader, _ = compute_extremal_pixel_value(downsampled_val_loader, include_plot=False, logger=logger) if downsampled_val_loader is not None else (None, None, None, None, None, None)
+    _, _, _, _, downsampled_test_loader, _ = compute_extremal_pixel_value(downsampled_test_loader, include_plot=False, logger=logger) if downsampled_test_loader is not None else (None, None, None, None, None, None)
     return (downsampled_train_loader, downsampled_val_loader, downsampled_test_loader, min_pixel_value, max_pixel_value, mean_pixel_value, std_pixel_value)
 
 
