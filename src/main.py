@@ -174,10 +174,10 @@ def main(logger: logging.Logger):
         max_val=training_data[4],
         mean=training_data[5],
         std=training_data[6],
-        boxplots=True,
+        boxplots=False,
         box_metric='SSIM',
         include_table=True,
-        include_maps=True,
+        include_maps=False,
         include_constant_maps=False # only worth running once to get the map saved
     )
 

@@ -507,6 +507,7 @@ class plotter:
             logger (logging.Logger): A logging.Logger instance for logging messages.
             metrics (dict): A dictionary of metric names and their corresponding values to be included in the table.
         """
+        logger.info(f"Generating typst table the following dataframe: \n\n{self.gdf}\n\n")
         group_cols = ["model", "criterion", "optimizer"]
         group_display_names = {
             "model": "Architecture",
