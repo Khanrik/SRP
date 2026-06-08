@@ -355,20 +355,21 @@ class plotter:
         
         pipeline_labels = self.gdf["name"].unique().tolist()
         pipeline_scores = []
+
+        best_pipeline = None
+        best_score = -np.inf
+
         for pipeline_name in pipeline_labels:
-            # Find best model excluding bilinear baseline
-            if pipeline_name != "bilinear":
-                pipeline_scores.append(self.gdf[self.gdf["name"] == pipeline_name][metric_name].tolist())
+            scores = self.gdf[self.gdf["name"] == pipeline_name][metric_name].tolist()
+            pipeline_scores.append(scores)
 
-        def _average_score(values: list[float]) -> float:
-            finite_values = [value for value in values if np.isfinite(value)]
-            return np.mean(finite_values)
-        
-        average_scores = [_average_score(scores) for scores in pipeline_scores]
-        best_pipeline = pipeline_labels[int(np.argmax(average_scores))]
+            if pipeline_name == "bilinear":
+                continue
 
-        # re-introduce bilinear for boxplots
-        pipeline_scores.append(self.gdf[self.gdf["name"] == "bilinear"][metric_name].tolist())
+            mean_score = float(np.mean(scores))
+            if mean_score > best_score:
+                best_score = mean_score
+                best_pipeline = pipeline_name
 
         fig, ax = plt.subplots(figsize=(max(10, 3.6 * len(pipeline_labels)), 6))
         bp = ax.boxplot(pipeline_scores, labels=pipeline_labels, vert=True, patch_artist=True)
