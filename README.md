@@ -1,6 +1,9 @@
 # SRP
 Super Resolution Project
 
+## Run
+To run the project, install everything form installation then run main. If you get an exception, just run it again until you have downloaded all tif files. Then it should run without problems from there.
+
 ## Installation
 
 ### Python

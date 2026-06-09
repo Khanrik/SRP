@@ -39,7 +39,8 @@ def get_ethiopia_data(output_path: Path,
 def get_denmark_data(output_path: Path, 
                      lr_target_resolution: tuple[int, int],
                      hr_target_resolution: int,
-                     include_merge: bool = False):
+                     include_merge: bool = False,
+                     regions: list[str] = ["west_jutland", "east_jutland", "funen", "zealand", "bornholm"]):
     """Gets Danish DEM data from both Copernicus and Dataforsyningen
     
     Args:
@@ -47,6 +48,7 @@ def get_denmark_data(output_path: Path,
         lr_target_resolution (tuple[int, int]): The target resolution for the low resolution images (width, height) in pixels.
         hr_target_resolution (int): The target resolution for the high resolution images in meters per pixel.
         include_merge (bool, optional): A boolean indicating whether to include a merged version of the data in the output. Default is False.
+        regions (list[str], optional): A list of strings indicating which regions of Denmark to include in the dataset. The function is set up to handle the following regions: "west_jutland", "east_jutland", "funen", "zealand", and "bornholm". Default is to include all regions.
 
     Returns:
         None. The function saves the processed dataset to the specified output path.
@@ -68,7 +70,7 @@ def get_denmark_data(output_path: Path,
         "bornholm": cop_data_group(copernicus=Copernicus(aoi=bornholm_bbox))
     }
 
-    for region in denmark_data.keys():
+    for region in regions:
         print(f"Processing {region} for Copernicus...")
         divided_data, merged_data = denmark_data[region].copernicus.get_data(target_resolution=lr_target_resolution)
         denmark_data[region].divided_data = divided_data

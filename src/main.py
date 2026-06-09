@@ -19,6 +19,9 @@ from getting_datasets import getting_datasets
 from inspect import signature
 from unet_residual import UNetResidual
 
+def exists_and_not_empty(path):
+    return path.exists() and any(path.iterdir())
+
 def datafetching_and_processing(logger: logging.Logger, VisualEvaluationData: list[str] = ["ethiopia"]):
     """
     Fetches and processes data for the specified regions.
@@ -34,28 +37,39 @@ def datafetching_and_processing(logger: logging.Logger, VisualEvaluationData: li
 
     lr_target_resolution = (128, 128)
     hr_target_resolution = 10
+    denmark_regions = ["jutland", "funen", "zealand", "bornholm"]
     
     #datafetching and processing
     if not data_dir.exists():
         data_dir.mkdir(parents=True, exist_ok=True)
 
-    if not (data_dir / "copernicus").exists() or not (data_dir / "dataforsyningen").exists():
+    denmark_source_regions = []
+    for region in denmark_regions:
+        if not exists_and_not_empty(data_dir / "dataforsyningen" / region):
+            if region == "jutland":
+                denmark_source_regions.extend(["west_jutland", "east_jutland"])
+            else:
+                denmark_source_regions.append(region)
+
+    if denmark_source_regions:
         logger.info("Downloading and processing Denmark data...")
         get_denmark_data(output_path=data_dir, 
                         lr_target_resolution=lr_target_resolution, 
                         hr_target_resolution=hr_target_resolution,
-                        include_merge=True)
-        
-    logger.info("Moving select files to 'selected' directory...")
-    move_to_selected(output_path=data_dir)
+                        include_merge=True,
+                        regions=denmark_source_regions)
     
     for region in VisualEvaluationData:
-        if not (data_dir / region).exists():
+        if exists_and_not_empty(data_dir / region):
             logger.info(f"Downloading and processing {region} data...")
             if region == "ethiopia":
                 get_ethiopia_data(output_path=data_dir, 
                                 target_resolution=lr_target_resolution,
                                 include_merge=True)
+    
+    logger.info("Moving select files to 'selected' directory...")
+    move_to_selected(output_path=data_dir)
+
     logger.info("Done fetching data!")
 
 
