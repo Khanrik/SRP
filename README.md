@@ -2,7 +2,11 @@
 Super Resolution Project
 
 ## Run
-To run the project, install everything form installation then run main. If you get an exception, just run it again until you have downloaded all tif files. Then it should run without problems from there.
+To run the project, install everything form installation then run main. If you get an exception, just run it again until you have downloaded all tif files. Then it should run without problems from there. If you keep on getting the following exception
+```
+pystac_client.exceptions.APIError: The request exceeded the maximum allowed time, please try again. If the issue persists, please contact planetarycomputer@microsoft.com.
+```
+Try to wait a while and run it again.
 
 ## Installation
 
